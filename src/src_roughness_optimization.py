@@ -15,7 +15,7 @@ from multiprocessing import Pool
 from utils.shared_variables import DOWNSTREAM_THRESHOLD, ROUGHNESS_MIN_THRESH, ROUGHNESS_MAX_THRESH
 
 
-def update_rating_curve(fim_directory, water_edge_median_df, htable_path, huc, branch_id, catchments_poly_path, debug_outputs_option, source_tag, merge_prev_adj=False, down_dist_thresh=DOWNSTREAM_THRESHOLD):
+def update_rating_curve(fim_directory, water_edge_median_df, df_htable, huc, branch_id, catchments_poly_path, debug_outputs_option, source_tag, merge_prev_adj=False, down_dist_thresh=DOWNSTREAM_THRESHOLD):
     '''
     This script ingests a dataframe containing observed data (HAND elevation and flow) and then calculates new SRC roughness values via Manning's equation. The new roughness values are averaged for each HydroID and then progated downstream and a new discharge value is calculated where applicable.
 
@@ -43,7 +43,7 @@ def update_rating_curve(fim_directory, water_edge_median_df, htable_path, huc, b
     Inputs:
     - fim_directory:        fim directory containing individual HUC output dirs
     - water_edge_median_df: dataframe containing observation data (attributes: "hydroid", "flow", "submitter", "coll_time", "flow_unit", "layer", "HAND")
-    - htable_path:          path to the current HUC hydroTable.csv
+    - df_htable:            Pandas dataframe of the current HUC hydroTable.csv
     - huc:                  string variable for the HUC id # (huc8 or huc6)
     - branch_id:            string variable for the branch id
     - catchments_poly_path: path to the current HUC catchments polygon layer .gpkg 
@@ -71,8 +71,6 @@ def update_rating_curve(fim_directory, water_edge_median_df, htable_path, huc, b
     if source_tag == 'usgs_rating':
         calb_type = 'calb_coef_usgs'
 
-    ## Read in the hydroTable.csv and check wether it has previously been updated (rename default columns if needed)
-    df_htable = pd.read_csv(htable_path, dtype={'HUC': object, 'last_updated':object, 'submitter':object, 'obs_source':object})
     df_prev_adj = pd.DataFrame() # initialize empty df for populating/checking later
     if 'precalb_discharge_cms' not in df_htable.columns: # need this column to exist before continuing
         df_htable['calb_applied'] = False

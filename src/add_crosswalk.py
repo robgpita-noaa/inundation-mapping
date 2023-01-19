@@ -17,7 +17,7 @@ from memory_profiler import profile
 
 
 @mem_profile
-def add_crosswalk(input_catchments_fileName,input_flows_fileName,input_srcbase_fileName,output_catchments_fileName,output_flows_fileName,output_src_fileName,output_src_json_fileName,output_crosswalk_fileName,output_hydro_table_fileName,input_huc_fileName,input_nwmflows_fileName,input_nwmcatras_fileName,mannings_n,input_nwmcat_fileName,extent,small_segments_filename,calibration_mode=False):
+def add_crosswalk(input_catchments_fileName,input_flows_fileName,input_srcbase_fileName,output_catchments_fileName,output_flows_fileName,output_src_fileName,output_src_json_fileName,output_crosswalk_fileName,output_hydro_table_fileName,input_huc_fileName,input_nwmflows_fileName,input_nwmcatras_fileName,mannings_n,input_nwmcat_fileName,extent,small_segments_filename):
 
     input_catchments = gpd.read_file(input_catchments_fileName)
     input_flows = gpd.read_file(input_flows_fileName)
@@ -116,17 +116,7 @@ def add_crosswalk(input_catchments_fileName,input_flows_fileName,input_srcbase_f
 
         output_flows = output_flows.merge(output_catchments.filter(items=['HydroID','areasqkm']),on='HydroID')
 
-    # read in manning's n values
-    if calibration_mode == False:
-        with open(mannings_n, "r") as read_file:
-            mannings_dict = json.load(read_file)
-    else:
-        mannings_dict = {}
-        for cnt,value in enumerate(mannings_n.split(",")[2:]):
-            streamorder = cnt+1
-            mannings_dict[str(streamorder)] = value
-
-    output_flows['ManningN'] = output_flows['order_'].astype(str).map(mannings_dict)
+    output_flows['ManningN'] = mannings_n
 
     if output_flows.NextDownID.dtype != 'int': output_flows.NextDownID = output_flows.NextDownID.astype(int)
 
@@ -278,32 +268,29 @@ def add_crosswalk(input_catchments_fileName,input_flows_fileName,input_srcbase_f
     if output_hydro_table.feature_id.dtype != 'str': output_hydro_table.feature_id = output_hydro_table.feature_id.astype(str)
 
     # write out based on mode
-    if calibration_mode == True:
-        output_hydro_table.to_csv(output_hydro_table_fileName,index=False)
-    else:
-        # make src json
-        output_src_json = dict()
-        hydroID_list = unique(output_src['HydroID'])
+    # make src json
+    output_src_json = dict()
+    hydroID_list = unique(output_src['HydroID'])
 
-        for hid in hydroID_list:
-            indices_of_hid = output_src['HydroID'] == hid
-            stage_list = output_src['Stage'][indices_of_hid].astype(float)
-            q_list = output_src['Discharge (m3s-1)'][indices_of_hid].astype(float)
+    for hid in hydroID_list:
+        indices_of_hid = output_src['HydroID'] == hid
+        stage_list = output_src['Stage'][indices_of_hid].astype(float)
+        q_list = output_src['Discharge (m3s-1)'][indices_of_hid].astype(float)
 
-            stage_list = stage_list.tolist()
-            q_list = q_list.tolist()
+        stage_list = stage_list.tolist()
+        q_list = q_list.tolist()
 
-            output_src_json[str(hid)] = { 'q_list' : q_list , 'stage_list' : stage_list }
+        output_src_json[str(hid)] = { 'q_list' : q_list , 'stage_list' : stage_list }
 
-        # write out
-        output_catchments.to_file(output_catchments_fileName,driver=getDriver(output_catchments_fileName),index=False)
-        output_flows.to_file(output_flows_fileName,driver=getDriver(output_flows_fileName),index=False)
-        output_src.to_csv(output_src_fileName,index=False)
-        output_crosswalk.to_csv(output_crosswalk_fileName,index=False)
-        output_hydro_table.to_csv(output_hydro_table_fileName,index=False)
+    # write out
+    output_catchments.to_file(output_catchments_fileName,driver=getDriver(output_catchments_fileName),index=False)
+    output_flows.to_file(output_flows_fileName,driver=getDriver(output_flows_fileName),index=False)
+    output_src.to_csv(output_src_fileName,index=False)
+    output_crosswalk.to_csv(output_crosswalk_fileName,index=False)
+    output_hydro_table.to_csv(output_hydro_table_fileName,index=False)
 
-        with open(output_src_json_fileName,'w') as f:
-            json.dump(output_src_json,f,sort_keys=True,indent=2)
+    with open(output_src_json_fileName,'w') as f:
+        json.dump(output_src_json,f,sort_keys=True,indent=2)
 
 
 if __name__ == '__main__':
@@ -325,7 +312,6 @@ if __name__ == '__main__':
     parser.add_argument('-z','--input-nwmcat-fileName',help='NWM catchment polygon',required=True)
     parser.add_argument('-p','--extent',help='MS or FR extent',required=True)
     parser.add_argument('-k','--small-segments-filename',help='output list of short segments',required=True)
-    parser.add_argument('-c','--calibration-mode',help='Mannings calibration flag',required=False,action='store_true')
 
     args = vars(parser.parse_args())
 
@@ -345,6 +331,5 @@ if __name__ == '__main__':
     input_nwmcat_fileName = args['input_nwmcat_fileName']
     extent = args['extent']
     small_segments_filename = args['small_segments_filename']
-    calibration_mode = args['calibration_mode']
 
-    add_crosswalk(input_catchments_fileName,input_flows_fileName,input_srcbase_fileName,output_catchments_fileName,output_flows_fileName,output_src_fileName,output_src_json_fileName,output_crosswalk_fileName,output_hydro_table_fileName,input_huc_fileName,input_nwmflows_fileName,input_nwmcatras_fileName,mannings_n,input_nwmcat_fileName,extent,small_segments_filename,calibration_mode)
+    add_crosswalk(input_catchments_fileName,input_flows_fileName,input_srcbase_fileName,output_catchments_fileName,output_flows_fileName,output_src_fileName,output_src_json_fileName,output_crosswalk_fileName,output_hydro_table_fileName,input_huc_fileName,input_nwmflows_fileName,input_nwmcatras_fileName,mannings_n,input_nwmcat_fileName,extent,small_segments_filename)

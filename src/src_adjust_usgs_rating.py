@@ -137,50 +137,45 @@ def create_usgs_rating_database(usgs_rc_filepath, usgs_elev_df, nwm_recurr_filep
     log_usgs_db.close()
     return(final_df)
 
-def branch_proc_list(usgs_df,run_dir,debug_outputs_option,log_file):
+def branch_proc_list(branch_set, usgs_df, hydrotable_df, run_dir, huc, debug_outputs_option,log_file):
     procs_list = []  # Initialize list for mulitprocessing.
 
-    # loop through all unique level paths that have a USGS gage
-    #branch_huc_dict = pd.Series(usgs_df.levpa_id.values,index=usgs_df.huc).to_dict('list')
-    #branch_huc_dict = usgs_df.set_index('huc').T.to_dict('list')
-    huc_branch_dict = usgs_df.groupby('huc')['levpa_id'].apply(set).to_dict()
+    for branch_id in branch_set: 
+        df_htable = hydrotable_df[hydrotable_df['branch_id'] == int(branch_id)]
+        # Define paths to branch HAND data.
+        # Define paths to HAND raster, catchments raster, and synthetic rating curve JSON.
+        # Assumes outputs are for HUC8 (not HUC6)
+        branch_dir = os.path.join(run_dir, huc,'branches',branch_id)
+        hand_path = os.path.join(branch_dir, 'rem_zeroed_masked_' + branch_id + '.tif')
+        catchments_path = os.path.join(branch_dir, 'gw_catchments_reaches_filtered_addedAttributes_' + branch_id + '.tif')
+        catchments_poly_path = os.path.join(branch_dir, 'gw_catchments_reaches_filtered_addedAttributes_crosswalked_' + branch_id + '.gpkg')
+        water_edge_median_ds = usgs_df[(usgs_df['huc']==huc) & (usgs_df['levpa_id']==branch_id)]
 
-    for huc in sorted(huc_branch_dict.keys()): # sort huc_list for helping track progress in future print statments
-        branch_set = huc_branch_dict[huc]
-        for branch_id in branch_set: 
-            # Define paths to branch HAND data.
-            # Define paths to HAND raster, catchments raster, and synthetic rating curve JSON.
-            # Assumes outputs are for HUC8 (not HUC6)
-            branch_dir = os.path.join(run_dir,huc,'branches',branch_id)
-            hand_path = os.path.join(branch_dir, 'rem_zeroed_masked_' + branch_id + '.tif')
-            catchments_path = os.path.join(branch_dir, 'gw_catchments_reaches_filtered_addedAttributes_' + branch_id + '.tif')
-            catchments_poly_path = os.path.join(branch_dir, 'gw_catchments_reaches_filtered_addedAttributes_crosswalked_' + branch_id + '.gpkg')
-            htable_path = os.path.join(branch_dir, 'hydroTable_' + branch_id + '.csv')
-            water_edge_median_ds = usgs_df[(usgs_df['huc']==huc) & (usgs_df['levpa_id']==branch_id)]
+        # Check to make sure the fim output files exist. Continue to next iteration if not and warn user.
+        if not os.path.exists(hand_path):
+            msg = "WARNING: HAND grid does not exist (skipping): " + str(huc) + ' - branch-id: ' + str(branch_id)
+            print(msg)
+            log_file.write(msg + '\n')
+        elif not os.path.exists(catchments_path):
+            msg = "WARNING: Catchments grid does not exist (skipping): " + str(huc) + ' - branch-id: ' + str(branch_id)
+            print(msg)
+            log_file.write(msg + '\n')
+        else:
+            ## Additional arguments for src_roughness_optimization
+            source_tag = 'usgs_rating' # tag to use in source attribute field
+            merge_prev_adj = False # merge in previous SRC adjustment calculations
 
-            # Check to make sure the fim output files exist. Continue to next iteration if not and warn user.
-            if not os.path.exists(hand_path):
-                print("WARNING: HAND grid does not exist (skipping): " + str(huc) + ' - branch-id: ' + str(branch_id))
-                log_file.write("WARNING: HAND grid does not exist (skipping): " + str(huc) + ' - branch-id: ' + str(branch_id) + '\n')
-            elif not os.path.exists(catchments_path):
-                print("WARNING: Catchments grid does not exist (skipping): " + str(huc) + ' - branch-id: ' + str(branch_id))
-                log_file.write("WARNING: Catchments grid does not exist (skipping): " + str(huc) + ' - branch-id: ' + str(branch_id) + '\n')        
-            elif not os.path.exists(htable_path):
-                print("WARNING: hydroTable does not exist (skipping): " + str(huc) + ' - branch-id: ' + str(branch_id))
-                log_file.write("WARNING: hydroTable does not exist (skipping): " + str(huc) + ' - branch-id: ' + str(branch_id) + '\n')
-            else:
-                ## Additional arguments for src_roughness_optimization
-                source_tag = 'usgs_rating' # tag to use in source attribute field
-                merge_prev_adj = False # merge in previous SRC adjustment calculations
+            print('Will perform SRC adjustments for huc: ' + str(huc) + ' - branch-id: ' + str(branch_id))
+            procs_list.append([branch_dir, water_edge_median_ds, df_htable, huc, branch_id, catchments_poly_path, debug_outputs_option, source_tag, merge_prev_adj])
 
-                print('Will perform SRC adjustments for huc: ' + str(huc) + ' - branch-id: ' + str(branch_id))
-                procs_list.append([branch_dir, water_edge_median_ds, htable_path, huc, branch_id, catchments_poly_path, debug_outputs_option, source_tag, merge_prev_adj])
+        # multiprocess all available branches
+        print(f"Calculating new SRCs for {len(procs_list)} branches using {job_number} jobs...")
+        with Pool(processes=job_number) as pool:
+                log_output, df_htable = zip(*pool.starmap(update_rating_curve, procs_list))
+                log_file.writelines(["%s\n" % item  for item in log_output])
 
-    # multiprocess all available branches
-    print(f"Calculating new SRCs for {len(procs_list)} branches using {job_number} jobs...")
-    with Pool(processes=job_number) as pool:
-            log_output = pool.starmap(update_rating_curve, procs_list)
-            log_file.writelines(["%s\n" % item  for item in log_output])
+    return df_htable
+
     # try statement for debugging 
     # try:
     #     with Pool(processes=job_number) as pool:
@@ -235,8 +230,30 @@ def run_prep(run_dir,usgs_rc_filepath,nwm_recurr_filepath,debug_outputs_option,j
         log_file.write("starting create usgs rating db")
         usgs_df = create_usgs_rating_database(usgs_rc_filepath, usgs_elev_df, nwm_recurr_filepath, log_dir)
 
-        ## Create huc proc_list for multiprocessing and execute the update_rating_curve function
-        branch_proc_list(usgs_df,run_dir,debug_outputs_option,log_file)
+        # loop through all unique level paths that have a USGS gage
+        #branch_huc_dict = pd.Series(usgs_df.levpa_id.values,index=usgs_df.huc).to_dict('list')
+        #branch_huc_dict = usgs_df.set_index('huc').T.to_dict('list')
+        huc_branch_dict = usgs_df.groupby('huc')['levpa_id'].apply(set).to_dict()
+
+        for huc in sorted(huc_branch_dict.keys()): # sort huc_list for helping track progress in future print statments
+            branch_set = huc_branch_dict[huc]
+            huc_dir = os.path.join(run_dir, huc)
+            htable_path = os.path.join(huc_dir, 'hydroTable.csv')
+            if not os.path.exists(htable_path):
+                msg = "WARNING: hydroTable does not exist (skipping): " + str(huc)
+                print(msg)
+                log_file.write(msg + '\n')
+            else:
+                ## Read in the hydroTable.csv and check wether it has previously been updated (rename default columns if needed)
+                hydrotable_df = pd.read_csv(htable_path, dtype={'HUC': object, 'last_updated':object, 'submitter':object, 'obs_source':object})
+                ## Create huc proc_list for multiprocessing and execute the update_rating_curve function
+                df_htable = branch_proc_list(branch_set, usgs_df, hydrotable_df, run_dir, huc, debug_outputs_option,log_file)
+
+        ## Output new hydroTable csv
+        if df_htable is not None:
+            # if output_suffix != "":
+            #     htable_filename = os.path.splitext(htable_filename)[0] + output_suffix + '.csv' 
+            df_htable.to_csv(htable_path, index=False)
 
     ## Record run time and close log file
     log_file.write('#########################################################\n\n')

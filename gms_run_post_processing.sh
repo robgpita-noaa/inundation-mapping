@@ -58,6 +58,7 @@ fi
 ## SOURCE ENV FILE AND FUNCTIONS ##
 source $envFile
 source $srcDir/bash_functions.env
+source $srcDir/bash_variables.env
 
 # default values
 if [ "$jobLimit" = "" ] ; then
@@ -94,12 +95,12 @@ echo "---- Started: `date -u`"
 T_total_start
 post_proc_start_time=`date +%s`
 
-## RUN AGGREGATE BRANCH ELEV TABLES ##
+## AGGREGATE BRANCH TABLES ##
 # TODO: How do we skip aggregation if there is a branch error
 # maybe against the non_zero logs above
 echo 
-echo "Processing usgs gage aggregation"
-python3 $srcDir/usgs_gage_aggregate.py -fim $outputRunDataDir -gms $gms_inputs
+echo "Aggregating branch tables"
+python3 $srcDir/aggregate_by_huc.py -fim $outputRunDataDir -gms $gms_inputs
 
 ## RUN SYNTHETIC RATING CURVE BANKFULL ESTIMATION ROUTINE ##
 if [ "$src_bankfull_toggle" = "True" ]; then
@@ -139,11 +140,12 @@ if [ "$src_adjust_spatial" = "True" ]; then
         export CALIBRATION_DB_NAME=$CALIBRATION_DB_NAME
         export CALIBRATION_DB_USER_NAME=$CALIBRATION_DB_USER_NAME
         export CALIBRATION_DB_PASS=$CALIBRATION_DB_PASS
+        export DEFAULT_FIM_PROJECTION_CRS=$DEFAULT_FIM_PROJECTION_CRS
         echo "Populate PostgrSQL database with benchmark FIM extent points and HUC attributes (the calibration database)"
         echo "Loading HUC Data"
-        time ogr2ogr -overwrite -nln hucs -t_srs EPSG:5070 -f PostgreSQL PG:"host=$CALIBRATION_DB_HOST dbname=$CALIBRATION_DB_NAME user=$CALIBRATION_DB_USER_NAME password=$CALIBRATION_DB_PASS" $inputDataDir/wbd/WBD_National.gpkg WBDHU8
+        time ogr2ogr -overwrite -nln hucs -t_srs $DEFAULT_FIM_PROJECTION_CRS -f PostgreSQL PG:"host=$CALIBRATION_DB_HOST dbname=$CALIBRATION_DB_NAME user=$CALIBRATION_DB_USER_NAME password=$CALIBRATION_DB_PASS" $inputDataDir/wbd/WBD_National.gpkg WBDHU8
         echo "Loading Point Data"
-        time ogr2ogr -overwrite -t_srs EPSG:5070 -f PostgreSQL PG:"host=$CALIBRATION_DB_HOST dbname=$CALIBRATION_DB_NAME user=$CALIBRATION_DB_USER_NAME password=$CALIBRATION_DB_PASS" $fim_obs_pnt_data usgs_nws_benchmark_points -nln points
+        time ogr2ogr -overwrite -t_srs $DEFAULT_FIM_PROJECTION_CRS -f PostgreSQL PG:"host=$CALIBRATION_DB_HOST dbname=$CALIBRATION_DB_NAME user=$CALIBRATION_DB_USER_NAME password=$CALIBRATION_DB_PASS" $fim_obs_pnt_data usgs_nws_benchmark_points -nln points
     fi
 fi
 
