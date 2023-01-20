@@ -174,6 +174,8 @@ def branch_proc_list(branch_set, usgs_df, hydrotable_df, run_dir, huc, debug_out
                 log_output, df_htable = zip(*pool.starmap(update_rating_curve, procs_list))
                 log_file.writelines(["%s\n" % item  for item in log_output])
 
+    df_htable = pd.concat(df_htable)
+
     return df_htable
 
     # try statement for debugging 
@@ -238,22 +240,30 @@ def run_prep(run_dir,usgs_rc_filepath,nwm_recurr_filepath,debug_outputs_option,j
         for huc in sorted(huc_branch_dict.keys()): # sort huc_list for helping track progress in future print statments
             branch_set = huc_branch_dict[huc]
             huc_dir = os.path.join(run_dir, huc)
-            htable_path = os.path.join(huc_dir, 'hydroTable.csv')
+            htable_path = os.path.join(huc_dir, 'hydrotable.csv')
             if not os.path.exists(htable_path):
                 msg = "WARNING: hydroTable does not exist (skipping): " + str(huc)
                 print(msg)
                 log_file.write(msg + '\n')
             else:
-                ## Read in the hydroTable.csv and check wether it has previously been updated (rename default columns if needed)
-                hydrotable_df = pd.read_csv(htable_path, dtype={'HUC': object, 'last_updated':object, 'submitter':object, 'obs_source':object})
+                ## Read in the hydroTable.csv and check whether it has previously been updated (rename default columns if needed)
+                hydrotable_df = pd.read_csv(htable_path, dtype={'HUC':str,
+                                                                'feature_id':str,
+                                                                'HydroID':str,
+                                                                'stage':float,
+                                                                'discharge_cms':float,
+                                                                'LakeID' : int,
+                                                                'last_updated':object,
+                                                                'submitter':object,
+                                                                'obs_source':object})
                 ## Create huc proc_list for multiprocessing and execute the update_rating_curve function
                 df_htable = branch_proc_list(branch_set, usgs_df, hydrotable_df, run_dir, huc, debug_outputs_option,log_file)
 
-        ## Output new hydroTable csv
-        if df_htable is not None:
-            # if output_suffix != "":
-            #     htable_filename = os.path.splitext(htable_filename)[0] + output_suffix + '.csv' 
-            df_htable.to_csv(htable_path, index=False)
+            ## Output new hydroTable csv
+            if df_htable is not None:
+                # if output_suffix != "":
+                #     htable_filename = os.path.splitext(htable_filename)[0] + output_suffix + '.csv' 
+                df_htable.to_csv(htable_path, index=False)
 
     ## Record run time and close log file
     log_file.write('#########################################################\n\n')
@@ -263,6 +273,7 @@ def run_prep(run_dir,usgs_rc_filepath,nwm_recurr_filepath,debug_outputs_option,j
     log_file.write('TOTAL RUN TIME: ' + str(tot_run_time))
     sys.stdout = sys.__stdout__
     log_file.close()
+
 
 if __name__ == '__main__':
     ## Parse arguments.

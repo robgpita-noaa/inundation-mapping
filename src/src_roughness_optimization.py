@@ -15,7 +15,7 @@ from multiprocessing import Pool
 from utils.shared_variables import DOWNSTREAM_THRESHOLD, ROUGHNESS_MIN_THRESH, ROUGHNESS_MAX_THRESH
 
 
-def update_rating_curve(fim_directory, water_edge_median_df, df_htable, huc, branch_id, catchments_poly_path, debug_outputs_option, source_tag, merge_prev_adj=False, down_dist_thresh=DOWNSTREAM_THRESHOLD):
+def update_rating_curve(fim_directory, water_edge_median_df, htable_path, huc, branch_id, catchments_poly_path, debug_outputs_option, source_tag, merge_prev_adj=False, down_dist_thresh=DOWNSTREAM_THRESHOLD):
     '''
     This script ingests a dataframe containing observed data (HAND elevation and flow) and then calculates new SRC roughness values via Manning's equation. The new roughness values are averaged for each HydroID and then progated downstream and a new discharge value is calculated where applicable.
 
@@ -43,7 +43,7 @@ def update_rating_curve(fim_directory, water_edge_median_df, df_htable, huc, bra
     Inputs:
     - fim_directory:        fim directory containing individual HUC output dirs
     - water_edge_median_df: dataframe containing observation data (attributes: "hydroid", "flow", "submitter", "coll_time", "flow_unit", "layer", "HAND")
-    - df_htable:            Pandas dataframe of the current HUC hydroTable.csv
+    - htable_path:            Pandas dataframe of the current HUC hydroTable.csv
     - huc:                  string variable for the HUC id # (huc8 or huc6)
     - branch_id:            string variable for the branch id
     - catchments_poly_path: path to the current HUC catchments polygon layer .gpkg 
@@ -65,10 +65,26 @@ def update_rating_curve(fim_directory, water_edge_median_df, df_htable, huc, bra
     df_nvalues = water_edge_median_df.copy()
     df_nvalues = df_nvalues[ (df_nvalues.hydroid.notnull()) & (df_nvalues.hydroid > 0) ] # remove null entries that do not have a valid hydroid
 
+    if isinstance(htable_path, str):
+        df_htable = pd.read_csv(htable_path,
+                                dtype={'HUC':str,
+                                       'feature_id':str,
+                                       'HydroID':str,
+                                       'stage':float,
+                                       'discharge_cms':float,
+                                       'LakeID' : int}
+                               )
+        df_htable.set_index(['HUC', 'feature_id', 'HydroID'], inplace=True)
+
+    elif isinstance(htable_path, pd.DataFrame):
+        pass #consider checking for correct dtypes, indices, and columns
+    else:
+        raise TypeError("Pass path to hydro-table csv or Pandas DataFrame")
+
     ## Determine calibration data type for naming calb dataframe column
     if source_tag == 'point_obs':
         calb_type = 'calb_coef_spatial'
-    if source_tag == 'usgs_rating':
+    elif source_tag == 'usgs_rating':
         calb_type = 'calb_coef_usgs'
 
     df_prev_adj = pd.DataFrame() # initialize empty df for populating/checking later
@@ -101,13 +117,15 @@ def update_rating_curve(fim_directory, water_edge_median_df, df_htable, huc, bra
     ## loop through the user provided point data --> stage/flow dataframe row by row
     for index, row in df_nvalues.iterrows():
         if row.hydroid not in df_htable['HydroID'].values:
-            print('ERROR: HydroID for calb point was not found in the hydrotable (check hydrotable) for HUC: ' + str(huc) + '  branch id: ' + str(branch_id) + ' hydroid: ' + str(row.hydroid))
-            log_text += 'ERROR: HydroID for calb point was not found in the hydrotable (check hydrotable) for HUC: ' + str(huc) + '  branch id: ' + str(branch_id) + ' hydroid: ' + str(row.hydroid) + '\n'
+            msg = 'ERROR: HydroID for calb point was not found in the hydrotable (check hydrotable) for HUC: ' + str(huc) + '  branch id: ' + str(branch_id) + ' hydroid: ' + str(row.hydroid)
+            print(msg)
+            log_text += msg + '\n'
         else:
             df_htable_hydroid = df_htable[(df_htable.HydroID == row.hydroid) & (df_htable.stage > 0)] # filter htable for entries with matching hydroid and ignore stage 0 (first possible stage match at 1ft)
             if df_htable_hydroid.empty:
-                print('ERROR: df_htable_hydroid is empty but expected data: ' + str(huc) + '  branch id: ' + str(branch_id) + ' hydroid: ' + str(row.hydroid))
-                log_text += 'ERROR: df_htable_hydroid is empty but expected data: ' + str(huc) + '  branch id: ' + str(branch_id) + ' hydroid: ' + str(row.hydroid) + '\n'
+                msg = 'ERROR: df_htable_hydroid is empty but expected data: ' + str(huc) + '  branch id: ' + str(branch_id) + ' hydroid: ' + str(row.hydroid)
+                print(msg)
+                log_text += msg + '\n'
                 
             find_src_stage = df_htable_hydroid.loc[df_htable_hydroid['stage'].sub(row.hand).abs().idxmin()] # find closest matching stage to the user provided HAND value
             ## copy the corresponding htable values for the matching stage->HAND lookup
@@ -268,23 +286,30 @@ def update_rating_curve(fim_directory, water_edge_median_df, df_htable, huc, bra
                 df_htable['discharge_cms'].mask(df_htable['precalb_discharge_cms']==-999,-999,inplace=True)
 
                 ## Export a new hydroTable.csv and overwrite the previous version
-                out_htable = os.path.join(fim_directory, 'hydroTable_' + branch_id + '.csv')
-                df_htable.to_csv(out_htable,index=False)
+                if isinstance(htable_path, str):
+                    out_htable = os.path.join(fim_directory, 'hydroTable_' + branch_id + '.csv')
+                    df_htable.to_csv(out_htable, index=False)
 
             else:
-                print('ALERT!! HUC: ' + str(huc) + '  branch id: ' + str(branch_id) + ' --> no valid hydroid roughness calculations after removing lakeid catchments from consideration')
-                log_text += 'ALERT!! HUC: ' + str(huc) + '  branch id: ' + str(branch_id) + ' --> no valid hydroid roughness calculations after removing lakeid catchments from consideration\n'
+                msg = 'ALERT!! HUC: ' + str(huc) + '  branch id: ' + str(branch_id) + ' --> no valid hydroid roughness calculations after removing lakeid catchments from consideration'
+                print(msg)
+                log_text += msg + '\n'
         else:
-                print('WARNING!! HUC: ' + str(huc) + '  branch id: ' + str(branch_id) + ' --> hydrotable is empty after removing lake catchments (will ignore branch)')
-                log_text += 'ALERT!! HUC: ' + str(huc) + '  branch id: ' + str(branch_id) + ' --> hydrotable is empty after removing lake catchments (will ignore branch)\n'
+            msg = 'WARNING!! HUC: ' + str(huc) + '  branch id: ' + str(branch_id) + ' --> hydrotable is empty after removing lake catchments (will ignore branch)'
+            print(msg)
+            log_text += msg + '\n'
     else:
-        print('ALERT!! HUC: ' + str(huc) + '  branch id: ' + str(branch_id) + ' --> no valid roughness calculations - please check point data and src calculations to evaluate')
-        log_text += 'ALERT!! HUC: ' + str(huc) + '  branch id: ' + str(branch_id) + ' --> no valid roughness calculations - please check point data and src calculations to evaluate\n'
+        msg = 'ALERT!! HUC: ' + str(huc) + '  branch id: ' + str(branch_id) + ' --> no valid roughness calculations - please check point data and src calculations to evaluate'
+        print(msg)
+        log_text += msg + '\n'
 
     log_text += 'Completed: ' + str(huc) + ' --> branch: ' + str(branch_id) + '\n'
     log_text += '#########################################################\n'
     print("Completed huc: " + str(huc) + ' --> branch: ' + str(branch_id))
-    return(log_text)
+    
+    if not isinstance(htable_path, str):
+        return(log_text, df_htable)
+
 
 def branch_network_tracer(df_input_htable):
     df_input_htable = df_input_htable.astype({'NextDownID': 'int64'}) # ensure attribute has consistent format as int

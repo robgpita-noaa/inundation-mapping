@@ -21,7 +21,9 @@ from src_roughness_optimization import update_rating_curve
 from utils.shared_variables import DOWNSTREAM_THRESHOLD, ROUGHNESS_MIN_THRESH, ROUGHNESS_MAX_THRESH, DEFAULT_FIM_PROJECTION_CRS
 
 #import variables from .env file
-load_dotenv()
+if os.getenv("CALIBRATION_DB_HOST") is None:
+    load_dotenv('/foss_fim/config/calb_db_keys.env')
+
 CALIBRATION_DB_HOST = os.getenv("CALIBRATION_DB_HOST")
 CALIBRATION_DB_NAME = os.getenv("CALIBRATION_DB_NAME")
 CALIBRATION_DB_USER_NAME = os.getenv("CALIBRATION_DB_USER_NAME")
@@ -68,7 +70,7 @@ def process_points(args):
     catchments_path = args[4]
     catchments_poly_path = args[5]
     water_edge_df = args[6]
-    htable_path = args[7]
+    df_htable = args[7]
     optional_outputs = args[8]
 
     ## Define coords variable to be used in point raster value attribution.
@@ -111,7 +113,7 @@ def process_points(args):
         merge_prev_adj = True # merge in previous SRC adjustment calculations
 
         ## Call update_rating_curve() to perform the rating curve calibration.
-        log_text = update_rating_curve(branch_dir, water_edge_median_df, htable_path, huc, 
+        log_text, df_htable = update_rating_curve(branch_dir, water_edge_median_df, df_htable, huc, 
                                        branch_id, catchments_poly_path, optional_outputs, 
                                        source_tag, merge_prev_adj, DOWNSTREAM_THRESHOLD)
         ## Still testing: use code below to print out any exceptions.
@@ -122,7 +124,7 @@ def process_points(args):
             print(str(huc) + ' --> ' + str(e))
             log_text = 'ERROR!!!: HUC ' + str(huc) + ' --> ' + str(e)
         '''
-    return(log_text)
+    return(log_text, df_htable)
 
 
 def find_points_in_huc(huc_id, conn):
@@ -237,13 +239,14 @@ def ingest_points_layer(fim_directory, job_number, debug_outputs_option, log_fil
             huc_list.append(huc)
             log_file.write(str(huc) + '\n')
 
-    procs_list = []  # Initialize proc list for mulitprocessing.
+    procs_list = []  # Initialize proc list for multiprocessing.
 
     #huc_list = ['12040103']
     ## Define paths to relevant HUC HAND data.
     huc_list.sort() # sort huc_list for helping track progress in future print statments
     for huc in huc_list:
-        huc_branches_dir = os.path.join(fim_directory, huc,'branches')
+        huc_dir = os.path.join(fim_directory, huc)
+        huc_branches_dir = os.path.join(huc_dir, 'branches')
         water_edge_df = find_points_in_huc(huc, conn).reset_index()
         print(f"{len(water_edge_df)} points found in " + str(huc))
         log_file.write(f"{len(water_edge_df)} points found in " + str(huc) + '\n')
@@ -255,42 +258,66 @@ def ingest_points_layer(fim_directory, job_number, debug_outputs_option, log_fil
         ## Check to make sure the HUC directory exists in the current fim_directory
         if not os.path.exists(os.path.join(fim_directory, huc)):
             log_file.write("FIM Directory for huc: " + str(huc) + " does not exist --> skipping SRC adjustments for this HUC (obs points found)\n")
-
-        ## Intermediate output for debugging
-        if debug_outputs_option:
-            huc_debug_pts_out = os.path.join(fim_directory, huc, 'debug_water_edge_df_' + huc + '.csv')
-            water_edge_df.to_csv(huc_debug_pts_out)
-            huc_debug_pts_out_gpkg = os.path.join(fim_directory, huc, 'export_water_edge_df_' + huc + '.gpkg')
-            water_edge_df.to_file(huc_debug_pts_out_gpkg, driver='GPKG', index=False)
-        
-        for branch_id in os.listdir(huc_branches_dir):
-            branch_dir = os.path.join(huc_branches_dir,branch_id)
-            ## Define paths to HAND raster, catchments raster, and synthetic rating curve JSON.
-            hand_path = os.path.join(branch_dir, 'rem_zeroed_masked_' + branch_id + '.tif')
-            catchments_path = os.path.join(branch_dir, 'gw_catchments_reaches_filtered_addedAttributes_' + branch_id + '.tif')
-            htable_path = os.path.join(branch_dir, 'hydroTable_' + branch_id + '.csv')
-            catchments_poly_path = os.path.join(branch_dir, 
-                'gw_catchments_reaches_filtered_addedAttributes_crosswalked_' + branch_id + '.gpkg')
-
-            # Check to make sure the fim output files exist. Continue to next iteration if not and warn user.
-            if not os.path.exists(hand_path):
-                print("WARNING: HAND grid does not exist (skipping): " + str(huc) + ' - branch-id: ' + str(branch_id))
-                log_file.write("WARNING: HAND grid does not exist (skipping): " + str(huc) + ' - branch-id: ' + str(branch_id) + '\n')
-            elif not os.path.exists(catchments_path):
-                print("WARNING: Catchments grid does not exist (skipping): " + str(huc) + ' - branch-id: ' + str(branch_id))
-                log_file.write("WARNING: Catchments grid does not exist (skipping): " + str(huc) + ' - branch-id: ' + str(branch_id) + '\n')        
-            elif not os.path.exists(htable_path):
-                print("WARNING: hydroTable does not exist (skipping): " + str(huc) + ' - branch-id: ' + str(branch_id))
-                log_file.write("WARNING: hydroTable does not exist (skipping): " + str(huc) + ' - branch-id: ' + str(branch_id) + '\n')
+            #TODO: Exit here?
+        else:
+            htable_path = os.path.join(huc_dir, 'hydrotable.csv')
+            if not os.path.exists(htable_path):
+                msg = "WARNING: hydroTable does not exist (skipping): " + str(huc) + ' - branch-id: ' + str(branch_id)
+                print(msg)
+                log_file.write(msg + '\n')
             else:
-                procs_list.append([branch_dir, huc, branch_id, hand_path, catchments_path, catchments_poly_path, water_edge_df, htable_path, debug_outputs_option])
+                hydrotable_df = pd.read_csv(htable_path, dtype={'HUC': object, 'last_updated':object, 'submitter':object, 'obs_source':object})
 
-    with Pool(processes=job_number) as pool:
-                log_output = pool.map(process_points, procs_list)
-                log_file.writelines(["%s\n" % item  for item in log_output])
+            ## Intermediate output for debugging
+            if debug_outputs_option:
+                huc_debug_pts_out = os.path.join(fim_directory, huc, 'debug_water_edge_df_' + huc + '.csv')
+                water_edge_df.to_csv(huc_debug_pts_out)
+                huc_debug_pts_out_gpkg = os.path.join(fim_directory, huc, 'export_water_edge_df_' + huc + '.gpkg')
+                water_edge_df.to_file(huc_debug_pts_out_gpkg, driver='GPKG', index=False)
+            
+            for branch_id in os.listdir(huc_branches_dir):
+                if int(branch_id) not in hydrotable_df['branch_id'].values:
+                    msg = "WARNING: branch does not exist in HUC (skipping): " + str(huc) + ' - branch-id: ' + str(branch_id)
+                    print(msg)
+                    log_file.write(msg + '\n')
+                else:
+                    df_htable = hydrotable_df[hydrotable_df['branch_id'] == int(branch_id)]
+
+                    branch_dir = os.path.join(huc_branches_dir,branch_id)
+                    ## Define paths to HAND raster, catchments raster, and synthetic rating curve JSON.
+                    hand_path = os.path.join(branch_dir, 'rem_zeroed_masked_' + branch_id + '.tif')
+                    catchments_path = os.path.join(branch_dir, 'gw_catchments_reaches_filtered_addedAttributes_' + branch_id + '.tif')
+                    catchments_poly_path = os.path.join(branch_dir, 
+                        'gw_catchments_reaches_filtered_addedAttributes_crosswalked_' + branch_id + '.gpkg')
+
+                    # Check to make sure the fim output files exist. Continue to next iteration if not and warn user.
+                    if not os.path.exists(hand_path):
+                        msg = "WARNING: HAND grid does not exist (skipping): " + str(huc) + ' - branch-id: ' + str(branch_id)
+                        print(msg)
+                        log_file.write(msg + '\n')
+                    elif not os.path.exists(catchments_path):
+                        msg = "WARNING: Catchments grid does not exist (skipping): " + str(huc) + ' - branch-id: ' + str(branch_id)
+                        print(msg)
+                        log_file.write(msg + '\n')        
+                    else:
+                        procs_list.append([branch_dir, huc, branch_id, hand_path, catchments_path, catchments_poly_path, water_edge_df, df_htable, debug_outputs_option])
+
+        with Pool(processes=job_number) as pool:
+            log_output, df_htable = zip(*pool.map(process_points, procs_list))
+            log_file.writelines(["%s\n" % item  for item in log_output])
+
+        df_htable = pd.concat(df_htable)
+
+        ## Output new hydroTable csv
+        if df_htable is not None:
+            # if output_suffix != "":
+            #     htable_filename = os.path.splitext(htable_filename)[0] + output_suffix + '.csv' 
+            df_htable.to_csv(htable_path, index=False)
+
                 
     log_file.write('#########################################################\n')
     disconnect(conn) # move this to happen at the end of the huc looping
+
 
 def connect():
     """ Connect to the PostgreSQL database server """
@@ -385,6 +412,7 @@ def run_prep(fim_directory, debug_outputs_option, ds_thresh_override, DOWNSTREAM
     log_file.write('TOTAL RUN TIME: ' + str(tot_run_time))
     sys.stdout = sys.__stdout__
     log_file.close()
+
 
 if __name__ == '__main__':
     ## Parse arguments.

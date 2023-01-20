@@ -532,8 +532,7 @@ def __subset_hydroTable_to_forecast(hydroTable,forecast,subset_hucs=None):
     if not hydroTable.empty:
 
         if isinstance(forecast,str):
-            forecast = pd.read_csv(
-                                   forecast,
+            forecast = pd.read_csv(forecast,
                                    dtype={'feature_id' : str , 'discharge' : float}
                                   )
             forecast.set_index('feature_id',inplace=True)
@@ -557,7 +556,8 @@ def __subset_hydroTable_to_forecast(hydroTable,forecast,subset_hucs=None):
                         subset_hucs = [subset_hucs]
 
             # subsets HUCS
-            subset_hucs_orig = subset_hucs.copy() ; subset_hucs = []
+            subset_hucs_orig = subset_hucs.copy()
+            subset_hucs = []
             for huc in np.unique(hydroTable.index.get_level_values('HUC')):
                 for sh in subset_hucs_orig:
                     if huc.startswith(sh):
@@ -573,7 +573,6 @@ def __subset_hydroTable_to_forecast(hydroTable,forecast,subset_hucs=None):
         raise NoForecastFound("No forecast value found for the passed feature_ids in the Hydro-Table")
 
     else:
-
         # initialize dictionary
         catchmentStagesDict = typed.Dict.empty(types.int32,types.float64)
 
