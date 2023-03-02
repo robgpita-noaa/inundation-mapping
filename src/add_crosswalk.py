@@ -19,9 +19,6 @@ from memory_profiler import profile
 # We want to explore using FR methodology as branch zero
 
 @mem_profile
-<<<<<<< HEAD
-def add_crosswalk(input_catchments_fileName,input_flows_fileName,input_srcbase_fileName,output_catchments_fileName,output_flows_fileName,output_src_fileName,output_src_json_fileName,output_crosswalk_fileName,output_hydro_table_fileName,input_huc_fileName,input_nwmflows_fileName,input_nwmcatras_fileName,mannings_n,input_nwmcat_fileName,extent,small_segments_filename):
-=======
 def add_crosswalk(input_catchments_fileName,
                   input_flows_fileName,
                   input_srcbase_fileName,
@@ -39,7 +36,6 @@ def add_crosswalk(input_catchments_fileName,
                   extent,
                   small_segments_filename,
                   calibration_mode=False):
->>>>>>> dev
 
     input_catchments = gpd.read_file(input_catchments_fileName)
     input_flows = gpd.read_file(input_flows_fileName)
@@ -337,26 +333,5 @@ if __name__ == '__main__':
 
     args = vars(parser.parse_args())
 
-<<<<<<< HEAD
-    input_catchments_fileName = args['input_catchments_fileName']
-    input_flows_fileName = args['input_flows_fileName']
-    input_srcbase_fileName = args['input_srcbase_fileName']
-    output_catchments_fileName = args['output_catchments_fileName']
-    output_flows_fileName = args['output_flows_fileName']
-    output_src_fileName = args['output_src_fileName']
-    output_src_json_fileName = args['output_src_json_fileName']
-    output_crosswalk_fileName = args['output_crosswalk_fileName']
-    output_hydro_table_fileName = args['output_hydro_table_fileName']
-    input_huc_fileName = args['input_huc_fileName']
-    input_nwmflows_fileName = args['input_nwmflows_fileName']
-    input_nwmcatras_fileName = args['input_nwmcatras_fileName']
-    mannings_n = args['mannings_n']
-    input_nwmcat_fileName = args['input_nwmcat_fileName']
-    extent = args['extent']
-    small_segments_filename = args['small_segments_filename']
-
-    add_crosswalk(input_catchments_fileName,input_flows_fileName,input_srcbase_fileName,output_catchments_fileName,output_flows_fileName,output_src_fileName,output_src_json_fileName,output_crosswalk_fileName,output_hydro_table_fileName,input_huc_fileName,input_nwmflows_fileName,input_nwmcatras_fileName,mannings_n,input_nwmcat_fileName,extent,small_segments_filename)
-=======
     add_crosswalk(**args)
    
->>>>>>> dev
