@@ -43,7 +43,7 @@ def update_rating_curve(fim_directory, water_edge_median_df, htable_path, huc, b
     Inputs:
     - fim_directory:        fim directory containing individual HUC output dirs
     - water_edge_median_df: dataframe containing observation data (attributes: "hydroid", "flow", "submitter", "coll_time", "flow_unit", "layer", "HAND")
-    - htable_path:            Pandas dataframe of the current HUC hydroTable.csv
+    - df_htable:            Pandas dataframe of the current HUC hydroTable.csv
     - huc:                  string variable for the HUC id # (huc8 or huc6)
     - branch_id:            string variable for the branch id
     - catchments_poly_path: path to the current HUC catchments polygon layer .gpkg 
@@ -54,7 +54,7 @@ def update_rating_curve(fim_directory, water_edge_median_df, htable_path, huc, b
 
     Ouputs:
     - output_catchments:    same input "catchments_poly_path" .gpkg with appened attributes for SRC adjustments fields
-    - df_htable:            same input "htable_path" --> updated hydroTable.csv with new/modified attributes
+    - df_htable:            same input "df_htable" --> updated hydroTable.csv with new/modified attributes
     - output_src_json:      src.json file with new SRC discharge values
 
     '''
@@ -77,6 +77,7 @@ def update_rating_curve(fim_directory, water_edge_median_df, htable_path, huc, b
         df_htable.set_index(['HUC', 'feature_id', 'HydroID'], inplace=True)
 
     elif isinstance(htable_path, pd.DataFrame):
+        df_htable = htable_path
         pass #consider checking for correct dtypes, indices, and columns
     else:
         raise TypeError("Pass path to hydro-table csv or Pandas DataFrame")

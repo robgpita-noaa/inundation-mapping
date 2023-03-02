@@ -246,10 +246,14 @@ def ingest_points_layer(fim_directory, job_number, debug_outputs_option, log_fil
     huc_list.sort() # sort huc_list for helping track progress in future print statments
     for huc in huc_list:
         huc_dir = os.path.join(fim_directory, huc)
-        huc_branches_dir = os.path.join(huc_dir, 'branches')
+        huc_branches_dir = os.path.join(huc_dir, 'branches') 
         water_edge_df = find_points_in_huc(huc, conn).reset_index()
         print(f"{len(water_edge_df)} points found in " + str(huc))
         log_file.write(f"{len(water_edge_df)} points found in " + str(huc) + '\n')
+
+        ## Get list of branches within each HUC
+        with open(huc_dir + os.sep + 'branch_id.lst') as f:
+            huc_branches_list = f.read().splitlines()
 
         ## Create X and Y location columns by extracting from geometry.
         water_edge_df['X'] = water_edge_df['geom'].x
@@ -266,7 +270,7 @@ def ingest_points_layer(fim_directory, job_number, debug_outputs_option, log_fil
                 print(msg)
                 log_file.write(msg + '\n')
             else:
-                hydrotable_df = pd.read_csv(htable_path, dtype={'HUC': object, 'last_updated':object, 'submitter':object, 'obs_source':object})
+                hydrotable_df = pd.read_csv(htable_path, dtype={'HUC': object, 'branch_id':int, 'last_updated':object, 'submitter':object, 'obs_source':object})
 
             ## Intermediate output for debugging
             if debug_outputs_option:
@@ -275,9 +279,9 @@ def ingest_points_layer(fim_directory, job_number, debug_outputs_option, log_fil
                 huc_debug_pts_out_gpkg = os.path.join(fim_directory, huc, 'export_water_edge_df_' + huc + '.gpkg')
                 water_edge_df.to_file(huc_debug_pts_out_gpkg, driver='GPKG', index=False)
             
-            for branch_id in os.listdir(huc_branches_dir):
+            for branch_id in huc_branches_list:
                 if int(branch_id) not in hydrotable_df['branch_id'].values:
-                    msg = "WARNING: branch does not exist in HUC (skipping): " + str(huc) + ' - branch-id: ' + str(branch_id)
+                    msg = "WARNING: branch does not exist in hydrotable_df (skipping): " + str(huc) + ' - branch-id: ' + str(branch_id)
                     print(msg)
                     log_file.write(msg + '\n')
                 else:

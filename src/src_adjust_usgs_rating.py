@@ -168,11 +168,11 @@ def branch_proc_list(branch_set, usgs_df, hydrotable_df, run_dir, huc, debug_out
             print('Will perform SRC adjustments for huc: ' + str(huc) + ' - branch-id: ' + str(branch_id))
             procs_list.append([branch_dir, water_edge_median_ds, df_htable, huc, branch_id, catchments_poly_path, debug_outputs_option, source_tag, merge_prev_adj])
 
-        # multiprocess all available branches
-        print(f"Calculating new SRCs for {len(procs_list)} branches using {job_number} jobs...")
-        with Pool(processes=job_number) as pool:
-                log_output, df_htable = zip(*pool.starmap(update_rating_curve, procs_list))
-                log_file.writelines(["%s\n" % item  for item in log_output])
+    # multiprocess all available branches
+    print(f"Calculating new SRCs for {len(procs_list)} branches using {job_number} jobs...")
+    with Pool(processes=job_number) as pool:
+            log_output, df_htable = zip(*pool.starmap(update_rating_curve, procs_list))
+            log_file.writelines(["%s\n" % item  for item in log_output])
 
     df_htable = pd.concat(df_htable)
 
@@ -249,7 +249,7 @@ def run_prep(run_dir,usgs_rc_filepath,nwm_recurr_filepath,debug_outputs_option,j
                 ## Read in the hydroTable.csv and check whether it has previously been updated (rename default columns if needed)
                 hydrotable_df = pd.read_csv(htable_path, dtype={'HUC':str,
                                                                 'feature_id':str,
-                                                                'HydroID':str,
+                                                                'HydroID':int,
                                                                 'stage':float,
                                                                 'discharge_cms':float,
                                                                 'LakeID' : int,
