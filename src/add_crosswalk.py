@@ -15,9 +15,31 @@ from utils.shared_functions import getDriver, mem_profile
 from utils.shared_variables import FIM_ID
 from memory_profiler import profile
 
+# Feb 17, 2023
+# We want to explore using FR methodology as branch zero
 
 @mem_profile
+<<<<<<< HEAD
 def add_crosswalk(input_catchments_fileName,input_flows_fileName,input_srcbase_fileName,output_catchments_fileName,output_flows_fileName,output_src_fileName,output_src_json_fileName,output_crosswalk_fileName,output_hydro_table_fileName,input_huc_fileName,input_nwmflows_fileName,input_nwmcatras_fileName,mannings_n,input_nwmcat_fileName,extent,small_segments_filename):
+=======
+def add_crosswalk(input_catchments_fileName,
+                  input_flows_fileName,
+                  input_srcbase_fileName,
+                  output_catchments_fileName,
+                  output_flows_fileName,
+                  output_src_fileName,
+                  output_src_json_fileName,
+                  output_crosswalk_fileName,
+                  output_hydro_table_fileName,
+                  input_huc_fileName,
+                  input_nwmflows_fileName,
+                  input_nwmcatras_fileName,
+                  mannings_n,
+                  input_nwmcat_fileName,
+                  extent,
+                  small_segments_filename,
+                  calibration_mode=False):
+>>>>>>> dev
 
     input_catchments = gpd.read_file(input_catchments_fileName)
     input_flows = gpd.read_file(input_flows_fileName)
@@ -295,7 +317,7 @@ def add_crosswalk(input_catchments_fileName,input_flows_fileName,input_srcbase_f
 
 if __name__ == '__main__':
 
-    parser = argparse.ArgumentParser(description='Crosswalk for MS/FR networks; calculate synthetic rating curves; update short rating curves')
+    parser = argparse.ArgumentParser(description='Crosswalk for MS/FR/GMS networks; calculate synthetic rating curves; update short rating curves')
     parser.add_argument('-d','--input-catchments-fileName', help='DEM derived catchments', required=True)
     parser.add_argument('-a','--input-flows-fileName', help='DEM derived streams', required=True)
     parser.add_argument('-s','--input-srcbase-fileName', help='Base synthetic rating curve table', required=True)
@@ -310,11 +332,12 @@ if __name__ == '__main__':
     parser.add_argument('-y','--input-nwmcatras-fileName',help='NWM catchment raster',required=False)
     parser.add_argument('-m','--mannings-n',help='Mannings n. Accepts single parameter set or list of parameter set in calibration mode. Currently input as csv.',required=True)
     parser.add_argument('-z','--input-nwmcat-fileName',help='NWM catchment polygon',required=True)
-    parser.add_argument('-p','--extent',help='MS or FR extent',required=True)
+    parser.add_argument('-p','--extent',help='GMS only for now', default='GMS', required=False)
     parser.add_argument('-k','--small-segments-filename',help='output list of short segments',required=True)
 
     args = vars(parser.parse_args())
 
+<<<<<<< HEAD
     input_catchments_fileName = args['input_catchments_fileName']
     input_flows_fileName = args['input_flows_fileName']
     input_srcbase_fileName = args['input_srcbase_fileName']
@@ -333,3 +356,7 @@ if __name__ == '__main__':
     small_segments_filename = args['small_segments_filename']
 
     add_crosswalk(input_catchments_fileName,input_flows_fileName,input_srcbase_fileName,output_catchments_fileName,output_flows_fileName,output_src_fileName,output_src_json_fileName,output_crosswalk_fileName,output_hydro_table_fileName,input_huc_fileName,input_nwmflows_fileName,input_nwmcatras_fileName,mannings_n,input_nwmcat_fileName,extent,small_segments_filename)
+=======
+    add_crosswalk(**args)
+   
+>>>>>>> dev
