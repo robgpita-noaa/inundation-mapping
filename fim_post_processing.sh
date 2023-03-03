@@ -120,6 +120,17 @@ if [ "$src_subdiv_toggle" = "True" ]; then
     Tcount
 fi
 
+## RUN SYNTHETIC RATING CURVE CALIBRATION W/ USGS GAGE RATING CURVES ##
+if [ "$src_adjust_usgs" = "True" ] && [ "$src_subdiv_toggle" = "True" ]; then
+    Tstart
+    echo    
+    echo -e $startDiv"Performing SRC adjustments using USGS rating curve database"
+    # Run SRC Optimization routine using USGS rating curve data (WSE and flow @ NWM recur flow thresholds)
+    python3 $srcDir/src_adjust_usgs_rating.py -run_dir $outputRunDataDir -usgs_rc $inputDataDir/usgs_gages/usgs_rating_curves.csv -nwm_recur $nwm_recur_file -j $jobLimit
+    Tcount
+    date -u
+fi
+
 ## CONNECT TO CALIBRATION POSTGRESQL DATABASE (OPTIONAL) ##
 if [ "$src_adjust_spatial" = "True" ] && [ "$skipcal" = "0" ]; then
     if [ ! -f $CALB_DB_KEYS_FILE ]; then
@@ -164,17 +175,6 @@ if [ "$src_adjust_spatial" = "True" ] && [ "$skipcal" = "0" ]; then
     fi
 else
     echo "Skipping Populate PostgrSQL database"
-fi
-
-## RUN SYNTHETIC RATING CURVE CALIBRATION W/ USGS GAGE RATING CURVES ##
-if [ "$src_adjust_usgs" = "True" ] && [ "$src_subdiv_toggle" = "True" ]; then
-    Tstart
-    echo    
-    echo -e $startDiv"Performing SRC adjustments using USGS rating curve database"
-    # Run SRC Optimization routine using USGS rating curve data (WSE and flow @ NWM recur flow thresholds)
-    python3 $srcDir/src_adjust_usgs_rating.py -run_dir $outputRunDataDir -usgs_rc $inputDataDir/usgs_gages/usgs_rating_curves.csv -nwm_recur $nwm_recur_file -j $jobLimit
-    Tcount
-    date -u
 fi
 
 ## RUN SYNTHETIC RATING CURVE CALIBRATION W/ BENCHMARK POINT DATABASE (POSTGRESQL) ##

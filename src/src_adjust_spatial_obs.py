@@ -252,7 +252,7 @@ def ingest_points_layer(fim_directory, job_number, debug_outputs_option, log_fil
         log_file.write(f"{len(water_edge_df)} points found in " + str(huc) + '\n')
 
         ## Get list of branches within each HUC
-        with open(huc_dir + os.sep + 'branch_id.lst') as f:
+        with open(huc_dir + os.sep + 'branch_ids.lst') as f:
             huc_branches_list = f.read().splitlines()
 
         ## Create X and Y location columns by extracting from geometry.
