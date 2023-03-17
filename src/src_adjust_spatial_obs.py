@@ -286,7 +286,6 @@ def ingest_points_layer(fim_directory, job_number, debug_outputs_option, log_fil
                     log_file.write(msg + '\n')
                 else:
                     df_htable = hydrotable_df[hydrotable_df['branch_id'] == int(branch_id)]
-
                     branch_dir = os.path.join(huc_branches_dir,branch_id)
                     ## Define paths to HAND raster, catchments raster, and synthetic rating curve JSON.
                     hand_path = os.path.join(branch_dir, 'rem_zeroed_masked_' + branch_id + '.tif')
@@ -307,18 +306,18 @@ def ingest_points_layer(fim_directory, job_number, debug_outputs_option, log_fil
                         procs_list.append([branch_dir, huc, branch_id, hand_path, catchments_path, catchments_poly_path, water_edge_df, df_htable, debug_outputs_option])
 
         with Pool(processes=job_number) as pool:
-            log_output, df_htable = zip(*pool.map(process_points, procs_list))
+            log_output, df_htable_calb = zip(*pool.map(process_points, procs_list))
             log_file.writelines(["%s\n" % item  for item in log_output])
+            for calb_htable in df_htable_calb:
+                #print(calb_htable.head)
+                df_htable = pd.concat([hydrotable_df,calb_htable]).drop_duplicates(subset=['branch_id','HydroID','stage'],keep='last').reset_index(drop=True)
 
-        df_htable = pd.concat(df_htable)
+            ## Output new hydroTable csv
+            if df_htable is not None:
+                # if output_suffix != "":
+                #     htable_filename = os.path.splitext(htable_filename)[0] + output_suffix + '.csv' 
+                df_htable.to_csv(htable_path, index=False)
 
-        ## Output new hydroTable csv
-        if df_htable is not None:
-            # if output_suffix != "":
-            #     htable_filename = os.path.splitext(htable_filename)[0] + output_suffix + '.csv' 
-            df_htable.to_csv(htable_path, index=False)
-
-                
     log_file.write('#########################################################\n')
     disconnect(conn) # move this to happen at the end of the huc looping
 

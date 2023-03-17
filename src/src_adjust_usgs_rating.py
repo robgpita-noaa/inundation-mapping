@@ -141,10 +141,10 @@ def branch_proc_list(branch_set, usgs_df, hydrotable_df, run_dir, huc, debug_out
     procs_list = []  # Initialize list for mulitprocessing.
 
     for branch_id in branch_set: 
-        df_htable = hydrotable_df[hydrotable_df['branch_id'] == int(branch_id)]
+        df_htable_branch = hydrotable_df[hydrotable_df['branch_id'] == int(branch_id)]
         # Define paths to branch HAND data.
         # Define paths to HAND raster, catchments raster, and synthetic rating curve JSON.
-        # Assumes outputs are for HUC8 (not HUC6)
+        # Assumes outputs are for HUC8
         branch_dir = os.path.join(run_dir, huc,'branches',branch_id)
         hand_path = os.path.join(branch_dir, 'rem_zeroed_masked_' + branch_id + '.tif')
         catchments_path = os.path.join(branch_dir, 'gw_catchments_reaches_filtered_addedAttributes_' + branch_id + '.tif')
@@ -164,17 +164,16 @@ def branch_proc_list(branch_set, usgs_df, hydrotable_df, run_dir, huc, debug_out
             ## Additional arguments for src_roughness_optimization
             source_tag = 'usgs_rating' # tag to use in source attribute field
             merge_prev_adj = False # merge in previous SRC adjustment calculations
-
             print('Will perform SRC adjustments for huc: ' + str(huc) + ' - branch-id: ' + str(branch_id))
-            procs_list.append([branch_dir, water_edge_median_ds, df_htable, huc, branch_id, catchments_poly_path, debug_outputs_option, source_tag, merge_prev_adj])
+            procs_list.append([branch_dir, water_edge_median_ds, df_htable_branch, huc, branch_id, catchments_poly_path, debug_outputs_option, source_tag, merge_prev_adj])
 
     # multiprocess all available branches
     print(f"Calculating new SRCs for {len(procs_list)} branches using {job_number} jobs...")
     with Pool(processes=job_number) as pool:
-            log_output, df_htable = zip(*pool.starmap(update_rating_curve, procs_list))
+            log_output, df_htable_calb = zip(*pool.starmap(update_rating_curve, procs_list))
             log_file.writelines(["%s\n" % item  for item in log_output])
-
-    df_htable = pd.concat(df_htable)
+            for calb_htable in df_htable_calb:
+                df_htable = pd.concat([hydrotable_df,calb_htable]).drop_duplicates(subset=['branch_id','HydroID','stage'],keep='last').reset_index(drop=True)
 
     return df_htable
 

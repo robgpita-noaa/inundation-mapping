@@ -172,7 +172,7 @@ def __inundate_gms_generator( hucs_branches,
         catchments_file_name = f'gw_catchments_reaches_filtered_addedAttributes_{branch_id}.tif'
         catchments_branch = os.path.join( huc_dir, branch_id, catchments_file_name )
 
-        hydroTable_branch = os.path.join( huc_dir, branch_id, 'hydroTable_{}.csv'.format(branch_id) )
+        hydroTable_branch = os.path.join( hydrofabric_dir, huc, 'hydrotable.csv' )
 
         xwalked_file_name = f'gw_catchments_reaches_filtered_addedAttributes_crosswalked_{branch_id}.gpkg'
         catchment_poly = os.path.join( huc_dir, branch_id, xwalked_file_name )

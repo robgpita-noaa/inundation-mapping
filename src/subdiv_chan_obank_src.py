@@ -44,27 +44,27 @@ def variable_mannings_calc(args):
     in_src_bankfull_filename    = args[0]
     df_mann                     = args[1]
     huc                         = args[2]
-    branch_id                   = args[3]
-    df_htable                   = args[4]
+    htable_filename             = args[3]
+    output_suffix               = args[4]
     src_plot_option             = args[5]
     huc_output_dir              = args[6]
 
     ## Read the src_full_crosswalked.csv
-    log_text = 'Calculating modified SRC: ' + str(huc) + '  branch id: ' + str(branch_id) + '\n'
+    log_text = 'Calculating modified SRC: ' + str(huc) + '\n'
     try:
-        df_src_orig = pd.read_csv(in_src_bankfull_filename,dtype={'feature_id': 'int64'})
+        df_src_orig = pd.read_csv(in_src_bankfull_filename,dtype={'feature_id': 'int'})
 
         ## Check that the channel ratio column the user specified exists in the def
         if 'Stage_bankfull' not in df_src_orig.columns:
-            msg = 'WARNING --> ' + str(huc) + '  branch id: ' + str(branch_id) + in_src_bankfull_filename + ' does not contain the specified bankfull column: Stage_bankfull'
+            msg = 'WARNING --> ' + str(huc) + ':  ' + in_src_bankfull_filename + ' does not contain the specified bankfull column: Stage_bankfull'
             print(msg)
-            print('Skipping --> ' + str(huc) + '  branch id: ' + str(branch_id))
+            print('Skipping --> ' + str(huc))
             log_text += msg + '\n'
         else:
             df_src_orig.drop(['channel_n','overbank_n','subdiv_applied','Discharge (m3s-1)_subdiv','Volume_chan (m3)','Volume_obank (m3)','BedArea_chan (m2)','BedArea_obank (m2)','WettedPerimeter_chan (m)','WettedPerimeter_obank (m)'], axis=1, inplace=True, errors='ignore') # drop these cols (in case vmann was previously performed)
             
             ## Calculate subdiv geometry variables
-            msg = 'Calculating subdiv variables for SRC: ' + str(huc) + '  branch id: ' + str(branch_id)
+            msg = 'Calculating subdiv variables for SRC: ' + str(huc)
             print(msg)
             log_text = msg + '\n'
             df_src = subdiv_geometry(df_src_orig)
@@ -73,7 +73,7 @@ def variable_mannings_calc(args):
             df_src = df_src.merge(df_mann,  how='left', on='feature_id')
             check_null = df_src['channel_n'].isnull().sum() + df_src['overbank_n'].isnull().sum()
             if check_null > 0:
-                log_text += str(huc) + '  branch id: ' + str(branch_id) + ' --> ' + 'Null feature_ids found in crosswalk btw roughness dataframe and src dataframe' + ' --> missing entries= ' + str(check_null/84)  + '\n'
+                log_text += str(huc) + ' --> ' + 'Null feature_ids found in crosswalk btw roughness dataframe and src dataframe' + ' --> missing entries= ' + str(check_null/84)  + '\n'
 
             ## Check if there are any missing data in the 'Stage_bankfull' column (these are locations where subdiv will not be applied)
             df_src['subdiv_applied'] = np.where(df_src['Stage_bankfull'].isnull(), False, True) # create field to identify where vmann is applied (True=yes; False=no)        
@@ -88,32 +88,42 @@ def variable_mannings_calc(args):
             df_src.to_csv(in_src_bankfull_filename,index=False)
 
             ## Output new hydroTable with updated discharge and ManningN column
-            df_src_trim = df_src[['HydroID','Stage','subdiv_applied','channel_n','overbank_n','Discharge (m3s-1)_subdiv']]
+            df_src_trim = df_src[['HydroID','branch_id','Stage','subdiv_applied','channel_n','overbank_n','Discharge (m3s-1)_subdiv']]
             df_src_trim = df_src_trim.rename(columns={'Stage':'stage','Discharge (m3s-1)_subdiv': 'subdiv_discharge_cms'})
             df_src_trim['discharge_cms'] = df_src_trim['subdiv_discharge_cms'] # create a copy of vmann modified discharge (used to track future changes)
-            # df_htable = pd.read_csv(htable_filename,dtype={'HUC': str})
+            
+            ## Read in the existing huc hydrotable.csv
+            df_htable = pd.read_csv(htable_filename,dtype={'HUC': str})
 
             ## drop the previously modified discharge column to be replaced with updated version
             df_htable.drop(['subdiv_applied','discharge_cms','overbank_n','channel_n','subdiv_discharge_cms'], axis=1, errors='ignore', inplace=True) 
-            df_htable = df_htable.merge(df_src_trim, how='left', left_on=['HydroID','stage'], right_on=['HydroID','stage'])
+            df_htable = df_htable.merge(df_src_trim, how='left', left_on=['HydroID','branch_id','stage'], right_on=['HydroID','branch_id','stage'])
 
-            log_text += 'Completed: ' + str(huc)
+            ## Output new hydroTable csv
+            if df_htable is not None:
+                if output_suffix != "":
+                    htable_filename = os.path.splitext(htable_filename)[0] + output_suffix + '.csv' 
+                df_htable.to_csv(htable_filename,index=False)
+                log_text += 'Completed: ' + str(huc)
 
-            ## plot rating curves
-            if src_plot_option:
-                if isdir(huc_output_dir) == False:
-                    os.mkdir(huc_output_dir)
-                generate_src_plot(df_src, huc_output_dir)
+                ## plot rating curves
+                if src_plot_option:
+                    if isdir(huc_output_dir) == False:
+                        os.mkdir(huc_output_dir)
+                    generate_src_plot(df_src, huc_output_dir)
+            else:
+                print('Error: ' + str(huc) + " df_htable is empty...")
+                log_text += 'ERROR --> ' + str(huc) + " df_htable is empty..." 
 
-        return(log_text, df_htable)
+            return(log_text)
 
     except Exception as ex:
         summary = traceback.StackSummary.extract(
                 traceback.walk_stack(None))
-        print('WARNING: ' + str(huc) + '  branch id: ' + str(branch_id) + " subdivision failed for some reason")
-        log_text += 'ERROR --> ' + str(huc) + '  branch id: ' + str(branch_id) + " subdivision failed (details: " + (f"*** {ex}") + (''.join(summary.format())) + '\n'
+        print('Error: ' + str(huc) + " subdivision failed for some reason")
+        log_text += 'ERROR --> ' + str(huc) + " subdivision failed (details: " + (f"*** {ex}") + (''.join(summary.format())) + '\n'
 
-        return(log_text, None)
+        return(log_text)
 
 def subdiv_geometry(df_src):
 
@@ -191,16 +201,12 @@ def multi_process(variable_mannings_calc, procs_list, log_file, number_of_jobs, 
     print(f"Computing subdivided SRC and applying variable Manning's n to channel/overbank for {len(procs_list)} hucs using {number_of_jobs} jobs")
     with Pool(processes=number_of_jobs) as pool:
         if verbose:
-            map_output, df_htable = zip(*tqdm(pool.imap(variable_mannings_calc, procs_list), total=len(procs_list)))
+            map_output = zip(*tqdm(pool.imap(variable_mannings_calc, procs_list), total=len(procs_list)))
             tuple(map_output)  # fetch the lazy results
         else:
-            map_output, df_htable = zip(*pool.map(variable_mannings_calc, procs_list))
+            map_output = pool.map(variable_mannings_calc, procs_list)
 
     log_file.writelines(["%s\n" % item  for item in map_output])
-
-    df_htable = pd.concat(df_htable)
-
-    return df_htable
 
 
 def run_prep(fim_dir,mann_n_table,output_suffix,number_of_jobs,verbose,src_plot_option):
@@ -236,37 +242,18 @@ def run_prep(fim_dir,mann_n_table,output_suffix,number_of_jobs,verbose,src_plot_
             #if huc != 'logs' and huc[-3:] != 'log' and huc[-4:] != '.csv':
             if re.match('\d{8}', huc):
                 huc_dir = os.path.join(fim_dir, huc)
-                huc_branches_dir = os.path.join(huc_dir, 'branches')
                 htable_filename = os.path.join(huc_dir, 'hydrotable.csv')
-                if isfile(htable_filename):
-                    hydrotable_df = pd.read_csv(htable_filename)
-
-                    for branch_id in os.listdir(huc_branches_dir):
-                        df_htable = hydrotable_df[hydrotable_df['branch_id'] == int(branch_id)]
-                        branch_dir = os.path.join(huc_branches_dir,branch_id)
-                        in_src_bankfull_filename = join(branch_dir,'src_full_crosswalked_' + branch_id + '.csv')
-                        huc_plot_output_dir = join(branch_dir,'src_plots')
-
-                        if isfile(in_src_bankfull_filename):
-                            procs_list.append([in_src_bankfull_filename, df_mann, huc, branch_id, df_htable, src_plot_option, huc_plot_output_dir])
-                        else:
-                            msg = 'HUC: ' + str(huc) + '  branch id: ' + str(branch_id) + '\nWARNING --> can not find required file (src_full_crosswalked_bankfull_*.csv) in the fim output dir: ' + str(branch_dir) + ' - skipping this branch!!!\n'
-                            print(msg)
-                            log_file.write(msg)
-
+                src_crosswalked_filename = os.path.join(huc_dir, 'src_full_crosswalked.csv')
+                if isfile(htable_filename) and isfile(src_crosswalked_filename):                   
+                    huc_plot_output_dir = join(huc_dir,'src_plots')
+                    procs_list.append([src_crosswalked_filename, df_mann, huc, htable_filename, output_suffix, src_plot_option, huc_plot_output_dir])
                 else:
-                    msg = 'HUC: ' + str(huc) + '\nWARNING --> can not find required file (hydroTable.csv) in the fim output dir: ' + str(huc_dir) + ' - skipping this HUC!!!\n'
+                    msg = 'HUC: ' + str(huc) + '\nWARNING --> can not find required files (hydrotable.csv and/or src_full_crosswalked_bankfull.csv) in the huc output dir: ' + str(huc_dir) + ' - skipping this huc!!!\n'
                     print(msg)
                     log_file.write(msg)
 
         ## Pass huc procs_list to multiprocessing function
-        df_htable = multi_process(variable_mannings_calc, procs_list, log_file, number_of_jobs, verbose)
-
-        ## Output new hydroTable csv
-        if df_htable is not None:
-            if output_suffix != "":
-                htable_filename = os.path.splitext(htable_filename)[0] + output_suffix + '.csv' 
-            df_htable.to_csv(htable_filename,index=False)
+        multi_process(variable_mannings_calc, procs_list, log_file, number_of_jobs, verbose)
 
         ## Record run time and close log file
         end_time = dt.datetime.now()

@@ -139,15 +139,13 @@ if [ "$src_adjust_spatial" = "True" ] && [ "$skipcal" = "0" ]; then
     else
         source $CALB_DB_KEYS_FILE
 
-        : '
-        This makes the local variables from the calb_db_keys files
-        into global variables that can be used in other files, including python.
+        ## This makes the local variables from the calb_db_keys files
+        ## into global variables that can be used in other files, including python.
 
-        Why not just leave the word export in front of each of the keys in the
-        calb_db_keys.env? Becuase that file is used against docker-compose
-        when we start up that part of the sytem and it does not like the word
-        export.
-        '
+        ## Why not just leave the word export in front of each of the keys in the
+        ## calb_db_keys.env? Becuase that file is used against docker-compose
+        ## when we start up that part of the sytem and it does not like the word
+        ## export.
 
         # Pick up the docker parent host machine name and override the one coming from the config file (aws only)
         if [ "$isAWS" = "1" ]; then
@@ -174,7 +172,7 @@ if [ "$src_adjust_spatial" = "True" ] && [ "$skipcal" = "0" ]; then
         Tcount
     fi
 else
-    echo "Skipping Populate PostgrSQL database"
+    echo -e $startDiv"Skipping Populate PostgrSQL database - NO Spatial Calibration"
 fi
 
 ## RUN SYNTHETIC RATING CURVE CALIBRATION W/ BENCHMARK POINT DATABASE (POSTGRESQL) ##

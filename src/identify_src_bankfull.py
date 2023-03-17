@@ -41,13 +41,12 @@ def src_bankfull_lookup(args):
     src_usecols                 = args[1]
     df_bflows                   = args[2]
     huc                         = args[3]
-    branch_id                   = args[4]
-    src_plot_option             = args[5]
-    huc_output_dir              = args[6]
+    src_plot_option             = args[4]
+    huc_output_dir              = args[5]
 
     ## Read the src_full_crosswalked.csv
-    print('Calculating bankfull: ' + str(huc) + '  branch id: ' + str(branch_id))
-    log_text = 'Calculating: ' + str(huc) + '  branch id: ' + str(branch_id) + '\n'
+    print('Calculating bankfull: ' + str(huc))
+    log_text = 'Calculating: ' + str(huc) + '\n'
     try:
         df_src = pd.read_csv(src_full_filename,usecols=src_usecols,dtype={'HydroID': int,'feature_id': int})
 
@@ -60,12 +59,12 @@ def src_bankfull_lookup(args):
         ## Check if there are any missing data, negative or zero flow values in the bankfull_flow
         check_null = df_src['bankfull_flow'].isnull().sum()
         if check_null > 0:
-            log_text += 'WARNING: Missing feature_id in crosswalk for huc: ' + str(huc) + '  branch id: ' + str(branch_id) + ' --> these featureids will be ignored in bankfull calcs (~' + str(check_null/84) +  ' features) \n'
+            log_text += 'WARNING: Missing feature_id in crosswalk for huc: ' + str(huc) + ' --> these featureids will be ignored in bankfull calcs (~' + str(check_null/84) +  ' features) \n'
             ## Fill missing/nan nwm bankfull_flow values with -999 to handle later
             df_src['bankfull_flow'] = df_src['bankfull_flow'].fillna(-999)
         negative_flows = len(df_src.loc[(df_src.bankfull_flow <= 0) & (df_src.bankfull_flow != -999)])
         if negative_flows > 0:
-            log_text += 'WARNING: HUC: ' + str(huc) + '  branch id: ' + str(branch_id) + ' --> Negative or zero flow values found in the input bankfull flows csv (posible lakeid loc)\n'
+            log_text += 'WARNING: HUC: ' + str(huc) + ' --> Negative or zero flow values found in the input bankfull flows csv (posible lakeid loc)\n'
 
         ## Define the channel geometry variable names to use from the src
         hradius_var = 'HydraulicRadius (m)'
@@ -78,11 +77,11 @@ def src_bankfull_lookup(args):
 
         ## Check for any missing/null entries in the input SRC
         if df_src['Q_bfull_find'].isnull().values.any(): # there may be null values for lake or coastal flow lines (need to set a value to do groupby idxmin below)
-            log_text += 'WARNING: HUC: ' + str(huc) + '  branch id: ' + str(branch_id) + ' --> Null values found in "Q_bfull_find" calc. These will be filled with 999999 () \n'
+            log_text += 'WARNING: HUC: ' + str(huc) + ' --> Null values found in "Q_bfull_find" calc. These will be filled with 999999 () \n'
             ## Fill missing/nan nwm 'Discharge (m3s-1)' values with 999999 to handle later
             df_src['Q_bfull_find'] = df_src['Q_bfull_find'].fillna(999999)
         if df_src['HydroID'].isnull().values.any():
-            log_text += 'WARNING: HUC: ' + str(huc) + '  branch id: ' + str(branch_id) + ' --> Null values found in "HydroID"... \n'
+            log_text += 'WARNING: HUC: ' + str(huc) + ' --> Null values found in "HydroID"... \n'
 
         df_bankfull_calc = df_src[['Stage','HydroID',bedarea_var,volume_var,hradius_var,surface_area_var,'Q_bfull_find']] # create new subset df to perform the Q_1_5 lookup
         df_bankfull_calc = df_bankfull_calc[df_bankfull_calc['Stage'] > 0.0] # Ensure bankfull stage is greater than stage=0
@@ -137,10 +136,10 @@ def src_bankfull_lookup(args):
     except Exception as ex:
         summary = traceback.StackSummary.extract(
                 traceback.walk_stack(None))
-        print(str(huc) + '  branch id: ' + str(branch_id) + " failed for some reason")
+        print(str(huc) + " failed for some reason")
         print(f"*** {ex}")                
         print(''.join(summary.format()))    
-        log_text += 'ERROR --> ' + str(huc) + '  branch id: ' + str(branch_id) + " failed (details: " + (f"*** {ex}") + (''.join(summary.format())) + '\n'
+        log_text += 'ERROR --> ' + str(huc) + " failed (details: " + (f"*** {ex}") + (''.join(summary.format())) + '\n'
     return(log_text)
 
 def generate_src_plot(df_src, plt_out_dir):
@@ -206,7 +205,7 @@ def run_prep(fim_dir,bankfull_flow_filepath,number_of_jobs,verbose,src_plot_opti
     log_file.write('#########################################################\n\n')
 
     ## List of columns in SRC_full_crosswalk to read in (ignores other columns that may have been added by previous post-proccessing runs)
-    src_usecols=['Stage','Number of Cells','SurfaceArea (m2)','BedArea (m2)','Volume (m3)','SLOPE','LENGTHKM','AREASQKM','ManningN','HydroID','NextDownID','order_','TopWidth (m)','WettedPerimeter (m)','WetArea (m2)','HydraulicRadius (m)','Discharge (m3s-1)','feature_id']
+    src_usecols=['branch_id','Stage','Number of Cells','SurfaceArea (m2)','BedArea (m2)','Volume (m3)','SLOPE','LENGTHKM','AREASQKM','ManningN','HydroID','NextDownID','order_','TopWidth (m)','WettedPerimeter (m)','WetArea (m2)','HydraulicRadius (m)','Discharge (m3s-1)','feature_id']
 
     df_bflows = pd.read_csv(bankfull_flow_filepath,dtype={'feature_id': int})
     huc_list  = os.listdir(fim_dir)
@@ -215,18 +214,16 @@ def run_prep(fim_dir,bankfull_flow_filepath,number_of_jobs,verbose,src_plot_opti
     for huc in huc_list:
         #if huc != 'logs' and huc[-3:] != 'log' and huc[-4:] != '.csv':
         if re.match('\d{8}', huc):    
-            huc_branches_dir = os.path.join(fim_dir, huc,'branches')
-            for branch_id in os.listdir(huc_branches_dir):
-                branch_dir = os.path.join(huc_branches_dir,branch_id)
-                src_orig_full_filename = join(branch_dir,'src_full_crosswalked_' + branch_id + '.csv')
-                huc_output_dir = join(branch_dir,'src_plots')
-                ## check if BARC modified src_full_crosswalked_BARC.csv exists otherwise use the orginial src_full_crosswalked.csv
-                if isfile(src_orig_full_filename):
-                    huc_pass_list.append(str(huc) + " --> src_full_crosswalked.csv")
-                    procs_list.append([src_orig_full_filename, src_usecols, df_bflows, huc, branch_id, src_plot_option, huc_output_dir])
-                else:
-                    print('HUC: ' + str(huc) + '  branch id: ' + str(branch_id) + 'WARNING --> can not find the SRC crosswalked csv file in the fim output dir: ' + str(branch_dir) + ' - skipping this branch!!!\n')
-                    log_file.write('HUC: ' + str(huc) + '  branch id: ' + str(branch_id) + 'WARNING --> can not find the SRC crosswalked csv file in the fim output dir: ' + str(branch_dir) + ' - skipping this branch!!!\n')
+            huc_dir = os.path.join(fim_dir, huc)
+            src_orig_full_filename = join(huc_dir,'src_full_crosswalked.csv')
+            huc_output_dir = join(huc_dir,'src_plots')
+            ## check if BARC modified src_full_crosswalked_BARC.csv exists otherwise use the orginial src_full_crosswalked.csv
+            if isfile(src_orig_full_filename):
+                huc_pass_list.append(str(huc) + " --> src_full_crosswalked.csv")
+                procs_list.append([src_orig_full_filename, src_usecols, df_bflows, huc, src_plot_option, huc_output_dir])
+            else:
+                print('HUC: ' + str(huc) + ' WARNING --> can not find the SRC crosswalked csv file in the fim output dir: ' + str(huc_dir) + ' - skipping this huc!!!\n')
+                log_file.write('HUC: ' + str(huc) + ' WARNING --> can not find the SRC crosswalked csv file in the fim output dir: ' + str(huc_dir) + ' - skipping this huc!!!\n')
 
     log_file.writelines(["%s\n" % item  for item in huc_pass_list])
     log_file.write('#########################################################\n\n')

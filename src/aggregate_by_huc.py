@@ -67,6 +67,52 @@ class HucDirectory(object):
                                   'discharge_cms':float}
         self.agg_hydrotable = pd.DataFrame(columns=list(self.hydrotable_dtypes.keys()))
 
+        self.src_crosswalked_dtypes = {'branch_id':int,
+                                    'HydroID':int,
+                                    'feature_id':int,
+                                    'Stage':float,
+                                    'Number of Cells':int,
+                                    'SurfaceArea (m2)':float,
+                                    'BedArea (m2)':float,
+                                    'Volume (m3)':float,
+                                    'SLOPE':float,
+                                    'LENGTHKM':float,
+                                    'AREASQKM':float,
+                                    'ManningN':float,
+                                    'NextDownID':int,
+                                    'order_':int,
+                                    'TopWidth (m)':float,
+                                    'WettedPerimeter (m)':float,
+                                    'WetArea (m2)':float,
+                                    'HydraulicRadius (m)':float,
+                                    'Discharge (m3s-1)':float,
+                                    'bankfull_flow':float,
+                                    'Stage_bankfull':float,
+                                    'BedArea_bankfull':float,
+                                    'Volume_bankfull':float,
+                                    'HRadius_bankfull':float,
+                                    'SurfArea_bankfull':float,
+                                    'bankfull_proxy':str,
+                                    'Volume_chan (m3)':float,
+                                    'BedArea_chan (m2)':float,
+                                    'WettedPerimeter_chan (m)':float,
+                                    'Volume_obank (m3)':float,
+                                    'BedArea_obank (m2)':float,
+                                    'WettedPerimeter_obank (m)':float,
+                                    'channel_n':float,
+                                    'overbank_n':float,
+                                    'subdiv_applied':bool,
+                                    'WetArea_chan (m2)':float,
+                                    'HydraulicRadius_chan (m)':float,
+                                    'Discharge_chan (m3s-1)':float,
+                                    'Velocity_chan (m/s)':float,
+                                    'WetArea_obank (m2)':float,
+                                    'HydraulicRadius_obank (m)':float,
+                                    'Discharge_obank (m3s-1)':float,
+                                    'Velocity_obank (m/s)':float,
+                                    'Discharge (m3s-1)_subdiv':float}
+        self.agg_src_cross = pd.DataFrame(columns=list(self.src_crosswalked_dtypes.keys()))
+
     def iter_branches(self):
 
         if self.limit_branches:
@@ -97,6 +143,16 @@ class HucDirectory(object):
         hydrotable['branch_id'] = branch_id
         self.agg_hydrotable = self.agg_hydrotable.append(hydrotable)
 
+    def aggregate_src_full_crosswalk(self, branch_path, branch_id):
+
+        src_cross_filename = join(branch_path, f'src_full_crosswalked_{branch_id}.csv')
+        if not os.path.isfile(src_cross_filename):
+            return
+
+        src_cross = pd.read_csv(src_cross_filename, dtype=self.src_crosswalked_dtypes)
+        src_cross['branch_id'] = branch_id
+        self.agg_src_cross = self.agg_src_cross.append(src_cross)
+
 
     def agg_function(self):
 
@@ -105,6 +161,7 @@ class HucDirectory(object):
 
             ## Other aggregate funtions can go here
             self.aggregate_hydrotables(branch_path, branch_id)
+            self.aggregate_src_full_crosswalk(branch_path, branch_id)
         
         ## After all of the branches are visited, the code below will write the aggregates
         usgs_elev_table_file = join(self.dir, 'usgs_elev_table.csv')
@@ -120,6 +177,13 @@ class HucDirectory(object):
 
         if not self.agg_hydrotable.empty:
             self.agg_hydrotable.to_csv(hydrotable_file, index=False)
+
+        src_crosswalk_file = join(self.dir, 'src_full_crosswalked.csv')
+        if os.path.isfile(src_crosswalk_file):
+            os.remove(src_crosswalk_file)
+
+        if not self.agg_src_cross.empty:
+            self.agg_src_cross.to_csv(src_crosswalk_file, index=False)
         
 
 if __name__ == '__main__':
