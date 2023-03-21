@@ -239,12 +239,11 @@ def ingest_points_layer(fim_directory, job_number, debug_outputs_option, log_fil
             huc_list.append(huc)
             log_file.write(str(huc) + '\n')
 
-    procs_list = []  # Initialize proc list for multiprocessing.
-
     #huc_list = ['12040103']
     ## Define paths to relevant HUC HAND data.
     huc_list.sort() # sort huc_list for helping track progress in future print statments
     for huc in huc_list:
+        procs_list = []  # Initialize proc list for multiprocessing.
         huc_dir = os.path.join(fim_directory, huc)
         huc_branches_dir = os.path.join(huc_dir, 'branches') 
         water_edge_df = find_points_in_huc(huc, conn).reset_index()
@@ -252,8 +251,8 @@ def ingest_points_layer(fim_directory, job_number, debug_outputs_option, log_fil
         log_file.write(f"{len(water_edge_df)} points found in " + str(huc) + '\n')
 
         ## Get list of branches within each HUC
-        with open(huc_dir + os.sep + 'branch_ids.lst') as f:
-            huc_branches_list = f.read().splitlines()
+        df_bid = pd.read_csv(huc_dir + os.sep + 'branch_ids.csv',header=None,names=["huc","branch_id"],dtype={'branch_id':str})
+        huc_branches_list = df_bid["branch_id"].values.tolist()
 
         ## Create X and Y location columns by extracting from geometry.
         water_edge_df['X'] = water_edge_df['geom'].x
@@ -262,15 +261,17 @@ def ingest_points_layer(fim_directory, job_number, debug_outputs_option, log_fil
         ## Check to make sure the HUC directory exists in the current fim_directory
         if not os.path.exists(os.path.join(fim_directory, huc)):
             log_file.write("FIM Directory for huc: " + str(huc) + " does not exist --> skipping SRC adjustments for this HUC (obs points found)\n")
-            #TODO: Exit here?
+            continue
         else:
             htable_path = os.path.join(huc_dir, 'hydrotable.csv')
+            htable_spatial_calb_path = os.path.join(huc_dir, 'hydrotable.csv')
             if not os.path.exists(htable_path):
                 msg = "WARNING: hydroTable does not exist (skipping): " + str(huc) + ' - branch-id: ' + str(branch_id)
                 print(msg)
                 log_file.write(msg + '\n')
+                continue
             else:
-                hydrotable_df = pd.read_csv(htable_path, dtype={'HUC': object, 'branch_id':int, 'last_updated':object, 'submitter':object, 'obs_source':object})
+                hydrotable_df = pd.read_csv(htable_path, dtype={'HUC': object, 'HydroID':int, 'branch_id':object, 'last_updated':object, 'submitter':object, 'obs_source':object})
 
             ## Intermediate output for debugging
             if debug_outputs_option:
@@ -280,12 +281,13 @@ def ingest_points_layer(fim_directory, job_number, debug_outputs_option, log_fil
                 water_edge_df.to_file(huc_debug_pts_out_gpkg, driver='GPKG', index=False)
             
             for branch_id in huc_branches_list:
-                if int(branch_id) not in hydrotable_df['branch_id'].values:
+                print('Processing branch: ' + str(branch_id))
+                if branch_id not in hydrotable_df['branch_id'].values:
                     msg = "WARNING: branch does not exist in hydrotable_df (skipping): " + str(huc) + ' - branch-id: ' + str(branch_id)
                     print(msg)
                     log_file.write(msg + '\n')
                 else:
-                    df_htable = hydrotable_df[hydrotable_df['branch_id'] == int(branch_id)]
+                    df_htable = hydrotable_df[hydrotable_df['branch_id'] == branch_id]
                     branch_dir = os.path.join(huc_branches_dir,branch_id)
                     ## Define paths to HAND raster, catchments raster, and synthetic rating curve JSON.
                     hand_path = os.path.join(branch_dir, 'rem_zeroed_masked_' + branch_id + '.tif')
@@ -308,16 +310,30 @@ def ingest_points_layer(fim_directory, job_number, debug_outputs_option, log_fil
         with Pool(processes=job_number) as pool:
             log_output, df_htable_calb = zip(*pool.map(process_points, procs_list))
             log_file.writelines(["%s\n" % item  for item in log_output])
-            for calb_htable in df_htable_calb:
-                #print(calb_htable.head)
-                df_htable = pd.concat([hydrotable_df,calb_htable]).drop_duplicates(subset=['branch_id','HydroID','stage'],keep='last').reset_index(drop=True)
-
-            ## Output new hydroTable csv
-            if df_htable is not None:
-                # if output_suffix != "":
-                #     htable_filename = os.path.splitext(htable_filename)[0] + output_suffix + '.csv' 
-                df_htable.to_csv(htable_path, index=False)
-
+        
+        #df_htable_out = pd.concat(df_htable_calb).reset_index(drop=True)
+        count=0
+        df_htable_out = pd.DataFrame()
+        for calb_htable in df_htable_calb:
+            if 'calb_coef_final' in calb_htable.columns:
+                count+=1
+                ##### testing outputs
+                htable_spatial_calb_path_test = os.path.join(huc_dir, 'hydrotable_spatial_calb_test')
+                calb_htable.to_csv(htable_spatial_calb_path_test + str(count) + '.csv', index=False)
+                calb_htable = calb_htable[calb_htable['calb_coef_final'].notna()]
+                df_htable_out = pd.concat([df_htable_out,calb_htable])
+            else:
+                print('NO "calb_coef_final" variable...')
+        
+        
+        ## Output new hydroTable csv
+        if df_htable_out is not None:
+            df_htable_out = pd.concat([hydrotable_df,df_htable_out]).drop_duplicates(subset=['branch_id','HydroID','stage'],keep='last').reset_index(drop=True)
+            df_htable_out.drop_duplicates(subset=['branch_id','HydroID','stage'],keep='last', inplace=True)#.reset_index(drop=True)
+            # if output_suffix != "":
+            #     htable_filename = os.path.splitext(htable_filename)[0] + output_suffix + '.csv' 
+            df_htable_out.to_csv(htable_spatial_calb_path, index=False)
+        
     log_file.write('#########################################################\n')
     disconnect(conn) # move this to happen at the end of the huc looping
 

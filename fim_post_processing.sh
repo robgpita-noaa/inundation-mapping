@@ -159,6 +159,7 @@ if [ "$src_adjust_spatial" = "True" ] && [ "$skipcal" = "0" ]; then
         export DEFAULT_FIM_PROJECTION_CRS=$DEFAULT_FIM_PROJECTION_CRS
 
         Tstart
+        echo -e $startDiv
         echo "Populate PostgrSQL database with benchmark FIM extent points and HUC attributes (the calibration database)"
         echo "Loading HUC Data"
         echo
@@ -180,7 +181,7 @@ if [ "$src_adjust_spatial" = "True" ] && [ "$src_subdiv_toggle" = "True" ]  && [
     Tstart
     echo
     echo -e $startDiv"Performing SRC adjustments using benchmark point database"
-    python3 $srcDir/src_adjust_spatial_obs.py -fim_dir $outputRunDataDir -j $jobLimit
+    python3 $srcDir/src_adjust_spatial_obs.py -fim_dir $outputRunDataDir -j $jobLimit -debug
     Tcount
     date -u
 fi

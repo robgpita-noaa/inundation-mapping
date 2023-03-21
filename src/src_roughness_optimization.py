@@ -292,7 +292,7 @@ def update_rating_curve(fim_directory, water_edge_median_df, htable_path, huc, b
                     df_htable.to_csv(out_htable, index=False)
 
             else:
-                msg = 'ALERT!! HUC: ' + str(huc) + '  branch id: ' + str(branch_id) + ' --> no valid hydroid roughness calculations after removing lakeid catchments from consideration'
+                msg = 'ALERT: HUC: ' + str(huc) + '  branch id: ' + str(branch_id) + ' --> no valid hydroid roughness calculations after removing lakeid catchments from consideration'
                 print(msg)
                 log_text += msg + '\n'
         else:
@@ -300,7 +300,7 @@ def update_rating_curve(fim_directory, water_edge_median_df, htable_path, huc, b
             print(msg)
             log_text += msg + '\n'
     else:
-        msg = 'ALERT!! HUC: ' + str(huc) + '  branch id: ' + str(branch_id) + ' --> no valid roughness calculations - please check point data and src calculations to evaluate'
+        msg = 'ALERT: HUC: ' + str(huc) + '  branch id: ' + str(branch_id) + ' --> no valid roughness calculations - please check point data and src calculations to evaluate'
         print(msg)
         log_text += msg + '\n'
 
