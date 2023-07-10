@@ -28,14 +28,14 @@ fi
 echo -e $startDiv"D8 Flow Accumulations $hucNumber $current_branch_id"
 date -u
 Tstart
-$taudemDir/aread8 -p $tempCurrentBranchDataDir/flowdir_d8_burned_filled_$current_branch_id.tif -ad8 $tempCurrentBranchDataDir/flowaccum_d8_burned_filled_$current_branch_id.tif -wg $tempCurrentBranchDataDir/headwaters_$current_branch_id.tif -nc
+$taudemDir/aread8 -p $tempCurrentBranchDataDir/flowdir_d8_filled_$current_branch_id.tif -ad8 $tempCurrentBranchDataDir/flowaccum_d8_filled_$current_branch_id.tif -wg $tempCurrentBranchDataDir/headwaters_$current_branch_id.tif -nc
 Tcount
 
 # THRESHOLD ACCUMULATIONS ##
 echo -e $startDiv"Threshold Accumulations $hucNumber $current_branch_id"
 date -u
 Tstart
-$taudemDir/threshold -ssa $tempCurrentBranchDataDir/flowaccum_d8_burned_filled_$current_branch_id.tif -src $tempCurrentBranchDataDir/demDerived_streamPixels_$current_branch_id.tif -thresh 1
+$taudemDir/threshold -ssa $tempCurrentBranchDataDir/flowaccum_d8_filled_$current_branch_id.tif -src $tempCurrentBranchDataDir/demDerived_streamPixels_$current_branch_id.tif -thresh 1
 Tcount
 
 ## PREPROCESSING FOR LATERAL THALWEG ADJUSTMENT ###
@@ -56,14 +56,14 @@ Tcount
 echo -e $startDiv"Mask Burned DEM for Thalweg Only $hucNumber $current_branch_id"
 date -u
 Tstart
-gdal_calc.py --quiet --type=Int32 --overwrite --co "COMPRESS=LZW" --co "BIGTIFF=YES" --co "TILED=YES" -A $tempCurrentBranchDataDir/flowdir_d8_burned_filled_$current_branch_id.tif -B $tempCurrentBranchDataDir/demDerived_streamPixels_$current_branch_id.tif --calc="A/B" --outfile="$tempCurrentBranchDataDir/flowdir_d8_burned_filled_flows_$current_branch_id.tif" --NoDataValue=0
+gdal_calc.py --quiet --type=Int32 --overwrite --co "COMPRESS=LZW" --co "BIGTIFF=YES" --co "TILED=YES" -A $tempCurrentBranchDataDir/flowdir_d8_filled_$current_branch_id.tif -B $tempCurrentBranchDataDir/demDerived_streamPixels_$current_branch_id.tif --calc="A/B" --outfile="$tempCurrentBranchDataDir/flowdir_d8_filled_flows_$current_branch_id.tif" --NoDataValue=0
 Tcount
 
 ## FLOW CONDITION STREAMS ##
 echo -e $startDiv"Flow Condition Thalweg $hucNumber $current_branch_id"
 date -u
 Tstart
-$taudemDir/flowdircond -p $tempCurrentBranchDataDir/flowdir_d8_burned_filled_flows_$current_branch_id.tif -z $tempCurrentBranchDataDir/dem_lateral_thalweg_adj_$current_branch_id.tif -zfdc $tempCurrentBranchDataDir/dem_thalwegCond_$current_branch_id.tif
+$taudemDir/flowdircond -p $tempCurrentBranchDataDir/flowdir_d8_filled_flows_$current_branch_id.tif -z $tempCurrentBranchDataDir/dem_lateral_thalweg_adj_$current_branch_id.tif -zfdc $tempCurrentBranchDataDir/dem_thalwegCond_$current_branch_id.tif
 Tcount
 
 ## D8 SLOPES ##
@@ -77,7 +77,7 @@ Tcount
 echo -e $startDiv"Stream Net for Reaches $hucNumber $current_branch_id"
 date -u
 Tstart
-$taudemDir/streamnet -p $tempCurrentBranchDataDir/flowdir_d8_burned_filled_$current_branch_id.tif -fel $tempCurrentBranchDataDir/dem_thalwegCond_$current_branch_id.tif -ad8 $tempCurrentBranchDataDir/flowaccum_d8_burned_filled_$current_branch_id.tif -src $tempCurrentBranchDataDir/demDerived_streamPixels_$current_branch_id.tif -ord $tempCurrentBranchDataDir/streamOrder_$current_branch_id.tif -tree $tempCurrentBranchDataDir/treeFile_$current_branch_id.txt -coord $tempCurrentBranchDataDir/coordFile_$current_branch_id.txt -w $tempCurrentBranchDataDir/sn_catchments_reaches_$current_branch_id.tif -net $tempCurrentBranchDataDir/demDerived_reaches_$current_branch_id.shp
+$taudemDir/streamnet -p $tempCurrentBranchDataDir/flowdir_d8_filled_$current_branch_id.tif -fel $tempCurrentBranchDataDir/dem_thalwegCond_$current_branch_id.tif -ad8 $tempCurrentBranchDataDir/flowaccum_d8_filled_$current_branch_id.tif -src $tempCurrentBranchDataDir/demDerived_streamPixels_$current_branch_id.tif -ord $tempCurrentBranchDataDir/streamOrder_$current_branch_id.tif -tree $tempCurrentBranchDataDir/treeFile_$current_branch_id.txt -coord $tempCurrentBranchDataDir/coordFile_$current_branch_id.txt -w $tempCurrentBranchDataDir/sn_catchments_reaches_$current_branch_id.tif -net $tempCurrentBranchDataDir/demDerived_reaches_$current_branch_id.shp
 Tcount
 
 ## SPLIT DERIVED REACHES ##
@@ -87,11 +87,41 @@ Tstart
 $srcDir/split_flows.py -f $tempCurrentBranchDataDir/demDerived_reaches_$current_branch_id.shp -d $tempCurrentBranchDataDir/dem_thalwegCond_$current_branch_id.tif -s $tempCurrentBranchDataDir/demDerived_reaches_split_$current_branch_id.gpkg -p $tempCurrentBranchDataDir/demDerived_reaches_split_points_$current_branch_id.gpkg -w $tempHucDataDir/wbd8_clp.gpkg -l $tempHucDataDir/nwm_lakes_proj_subset.gpkg -n $b_arg -m $max_split_distance_meters -t $slope_min -b $lakes_buffer_dist_meters
 Tcount
 
+## RASTERIZE REACH BOOLEAN (1 & 0) - BRANCH 0 (include all NWM streams) ##
+echo -e $startDiv"Rasterize Reach Boolean $hucNumber $current_branch_id"
+date -u
+Tstart
+gdal_rasterize -ot Int32 -burn 1 -init 0 -co "COMPRESS=LZW" -co "BIGTIFF=YES" -co "TILED=YES" -te $xmin $ymin $xmax $ymax -ts $ncols $nrows $tempCurrentBranchDataDir/demDerived_reaches_split_$current_branch_id.gpkg $tempCurrentBranchDataDir/flows_grid_boolean_$current_branch_id.tif
+Tcount
+
+## DEM Reconditioning - BRANCH 0 (include all NWM streams) ##
+# Using AGREE methodology, hydroenforce the DEM so that it is consistent with the supplied stream network.
+# This allows for more realistic catchment delineation which is ultimately reflected in the output FIM mapping.
+echo -e $startDiv"Creating AGREE DEM using $agree_DEM_buffer meter buffer $hucNumber (Branches)"
+date -u
+Tstart
+python3 -m memory_profiler $srcDir/agreedem.py -r $tempCurrentBranchDataDir/flows_grid_boolean_$current_branch_id.tif -d $tempCurrentBranchDataDir/dem_filled_$current_branch_id.tif -w $tempCurrentBranchDataDir -o $tempCurrentBranchDataDir/dem_filled_burned_$current_branch_id.tif -b $agree_DEM_buffer -sm 10 -sh 1000
+Tcount
+
+# ## PIT REMOVE BURNED DEM - BRANCH 0 (include all NWM streams) ##
+# echo -e $startDiv"Pit remove Burned DEM $hucNumber $current_branch_id"
+# date -u
+# Tstart
+# rd_depression_filling $tempCurrentBranchDataDir/dem_burned_$current_branch_id.tif $tempCurrentBranchDataDir/dem_burned_filled_$current_branch_id.tif
+# Tcount
+
+## D8 FLOW DIR - BRANCH 0 (include all NWM streams) ##
+echo -e $startDiv"D8 Flow Directions on Burned DEM $hucNumber $current_branch_id"
+date -u
+Tstart
+mpiexec -n $ncores_fd $taudemDir2/d8flowdir -fel $tempCurrentBranchDataDir/dem_filled_burned_$current_branch_id.tif -p $tempCurrentBranchDataDir/flowdir_d8_filled_burned_$current_branch_id.tif
+Tcount
+
 ## GAGE WATERSHED FOR REACHES ##
 echo -e $startDiv"Gage Watershed for Reaches $hucNumber $current_branch_id"
 date -u
 Tstart
-mpiexec -n $ncores_gw $taudemDir/gagewatershed -p $tempCurrentBranchDataDir/flowdir_d8_burned_filled_$current_branch_id.tif -gw $tempCurrentBranchDataDir/gw_catchments_reaches_$current_branch_id.tif -o $tempCurrentBranchDataDir/demDerived_reaches_split_points_$current_branch_id.gpkg -id $tempCurrentBranchDataDir/idFile_$current_branch_id.txt
+mpiexec -n $ncores_gw $taudemDir/gagewatershed -p $tempCurrentBranchDataDir/flowdir_d8_filled_burned_$current_branch_id.tif -gw $tempCurrentBranchDataDir/gw_catchments_reaches_$current_branch_id.tif -o $tempCurrentBranchDataDir/demDerived_reaches_split_points_$current_branch_id.gpkg -id $tempCurrentBranchDataDir/idFile_$current_branch_id.txt
 Tcount
 
 ## VECTORIZE FEATURE ID CENTROIDS ##
@@ -105,7 +135,7 @@ Tcount
 echo -e $startDiv"Gage Watershed for Pixels $hucNumber $current_branch_id"
 date -u
 Tstart
-mpiexec -n $ncores_gw $taudemDir/gagewatershed -p $tempCurrentBranchDataDir/flowdir_d8_burned_filled_"$current_branch_id".tif -gw $tempCurrentBranchDataDir/gw_catchments_pixels_$current_branch_id.tif -o $tempCurrentBranchDataDir/flows_points_pixels_$current_branch_id.gpkg -id $tempCurrentBranchDataDir/idFile_$current_branch_id.txt
+mpiexec -n $ncores_gw $taudemDir/gagewatershed -p $tempCurrentBranchDataDir/flowdir_d8_filled_"$current_branch_id".tif -gw $tempCurrentBranchDataDir/gw_catchments_pixels_$current_branch_id.tif -o $tempCurrentBranchDataDir/flows_points_pixels_$current_branch_id.gpkg -id $tempCurrentBranchDataDir/idFile_$current_branch_id.txt
 Tcount
 
 # D8 REM ##

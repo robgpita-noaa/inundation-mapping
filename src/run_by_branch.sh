@@ -50,7 +50,7 @@ Tcount
 echo -e $startDiv"Clipping rasters to branches $hucNumber $current_branch_id"
 date -u
 Tstart
-$srcDir/clip_rasters_to_branches.py -d $current_branch_id -b $tempHucDataDir/branch_polygons.gpkg -i $branch_id_attribute -r $tempHucDataDir/dem_meters.tif $tempHucDataDir/flowdir_d8_burned_filled.tif -c $tempCurrentBranchDataDir/dem_meters.tif $tempCurrentBranchDataDir/flowdir_d8_burned_filled.tif -v
+$srcDir/clip_rasters_to_branches.py -d $current_branch_id -b $tempHucDataDir/branch_polygons.gpkg -i $branch_id_attribute -r $tempHucDataDir/dem_meters.tif $tempHucDataDir/dem_filled.tif $tempHucDataDir/flowdir_d8_filled.tif -c $tempCurrentBranchDataDir/dem_meters.tif $tempCurrentBranchDataDir/dem_filled.tif $tempCurrentBranchDataDir/flowdir_d8_filled.tif -v
 Tcount
 
 ## GET RASTER METADATA
