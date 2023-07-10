@@ -143,6 +143,7 @@ def add_crosswalk(input_catchments_fileName,
     sml_segs = pd.DataFrame()
 
     # replace small segment geometry with neighboring stream
+    output_flows = output_flows.drop_duplicates(subset=['HydroID']).reset_index(drop=True)
     for stream_index in output_flows.index:
         if output_flows["areasqkm"][stream_index] < min_catchment_area and output_flows["LengthKm"][stream_index] < min_stream_length and output_flows["LakeID"][stream_index] < 0:
 
