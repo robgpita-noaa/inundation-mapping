@@ -8,6 +8,7 @@ import geopandas as gpd
 import requests
 import numpy as np
 import pathlib
+import time
 from pathlib import Path
 import rasterio.shutil
 from rasterio.warp import calculate_default_transform, reproject, Resampling
@@ -16,6 +17,51 @@ from rasterio import features
 from shapely.geometry import shape
 from shapely.geometry import Polygon
 from shapely.geometry import MultiPolygon
+from dotenv import load_dotenv
+
+
+def get_env_paths():
+    load_dotenv()
+    #import variables from .env file
+    API_BASE_URL = os.getenv("API_BASE_URL")
+    WBD_LAYER = os.getenv("WBD_LAYER")
+    return API_BASE_URL, WBD_LAYER
+
+
+def filter_nwm_segments_by_stream_order(unfiltered_segments, desired_order, nwm_flows_df):
+    """
+    This function uses the WRDS API to filter out NWM segments from a list if their stream order is different than
+    the target stream order.
+    
+    Args:
+        unfiltered_segments (list):  A list of NWM feature_id strings.
+        desired_order (str): The desired stream order.
+    Returns:
+        filtered_segments (list): A list of NWM feature_id strings, paired down to only those that share the target order.        
+    
+    """
+        
+#    API_BASE_URL, WBD_LAYER = get_env_paths()
+    #Define workspace and wbd_path as a pathlib Path. Convert search distances to integer.
+#    metadata_url = f'{API_BASE_URL}/metadata'
+        
+    
+
+    # feature ID of 0 is getting passed to WRDS and returns empty results,
+    # which can cause failures on next() 
+#    if '0' in unfiltered_segments:
+#        unfiltered_segments = unfiltered_segments.remove('0')
+#    if unfiltered_segments is None:
+#        return filtered_segments
+
+    filtered_segments = []
+
+    for feature_id in unfiltered_segments:
+        stream_order = nwm_flows_df.loc[nwm_flows_df['ID'] == int(feature_id), 'order_'].values[0]
+        if stream_order == desired_order:
+            filtered_segments.append(feature_id)
+
+    return filtered_segments
 
 
 def check_for_regression(stats_json_to_test, previous_version, previous_version_stats_json_path, regression_test_csv=None):
@@ -612,7 +658,9 @@ def get_metadata(metadata_url, select_by, selector, must_include = None, upstrea
     params['upstream_trace_distance'] = upstream_trace_distance
     params['downstream_trace_distance'] = downstream_trace_distance
     #Request data from url
-    response = requests.get(url, params = params)
+    response = requests.get(url, params = params, verify=False)
+#    print(response)
+#    print(url)
     if response.ok:
         #Convert data response to a json
         metadata_json = response.json()
@@ -685,13 +733,16 @@ def aggregate_wbd_hucs(metadata_list, wbd_huc8_path, retain_attributes = False):
 
     '''
     #Import huc8 layer as geodataframe and retain necessary columns
+    print("Reading WBD...")
     huc8 = gpd.read_file(wbd_huc8_path, layer = 'WBDHU8')
+    print("WBD read.")
     huc8 = huc8[['HUC8','name','states', 'geometry']]
     #Define EPSG codes for possible latlon datum names (default of NAD83 if unassigned)
     crs_lookup ={'NAD27':'EPSG:4267', 'NAD83':'EPSG:4269', 'WGS84': 'EPSG:4326'}
     #Create empty geodataframe and define CRS for potential horizontal datums
     metadata_gdf = gpd.GeoDataFrame()
     #Iterate through each site
+    print("Iterating through metadata list...")
     for metadata in metadata_list:
         #Convert metadata to json
         df = pd.json_normalize(metadata)
@@ -701,6 +752,7 @@ def aggregate_wbd_hucs(metadata_list, wbd_huc8_path, retain_attributes = False):
         df.dropna(subset = ['identifiers_nws_lid','usgs_preferred_latitude', 'usgs_preferred_longitude'], inplace = True)
         #If dataframe still has data
         if not df.empty:
+#            print(df[:5])
             #Get horizontal datum
             h_datum = df['usgs_preferred_latlon_datum_name'].item()
             #Look up EPSG code, if not returned Assume NAD83 as default. 
@@ -715,17 +767,17 @@ def aggregate_wbd_hucs(metadata_list, wbd_huc8_path, retain_attributes = False):
             #Reproject to huc 8 crs
             site_gdf = site_gdf.to_crs(huc8.crs)
             #Append site geodataframe to metadata geodataframe
-            metadata_gdf = metadata_gdf.append(site_gdf, ignore_index = True)
-
+            metadata_gdf = pd.concat([metadata_gdf, site_gdf], ignore_index = True)
+    
     #Trim metadata to only have certain fields.
     if not retain_attributes:
         metadata_gdf = metadata_gdf[['identifiers_nwm_feature_id', 'identifiers_nws_lid', 'identifiers_usgs_site_code', 'geometry']]
     #If a list of attributes is supplied then use that list.
-    elif isinstance(retain_attributes,list):
-        metadata_gdf = metadata_gdf[retain_attributes]
-
+#    elif isinstance(retain_attributes,list):
+#        metadata_gdf = metadata_gdf[retain_attributes]
+    print("Performing spatial and tabular operations on geodataframe...")
     #Perform a spatial join to get the WBD HUC 8 assigned to each AHPS
-    joined_gdf = gpd.sjoin(metadata_gdf, huc8, how = 'inner', op = 'intersects', lsuffix = 'ahps', rsuffix = 'wbd')
+    joined_gdf = gpd.sjoin(metadata_gdf, huc8, how = 'inner', predicate = 'intersects', lsuffix = 'ahps', rsuffix = 'wbd')
     joined_gdf = joined_gdf.drop(columns = 'index_wbd')
 
     #Remove all Alaska HUCS (Not in NWM v2.0 domain)
@@ -875,7 +927,7 @@ def get_thresholds(threshold_url, select_by, selector, threshold = 'all'):
     params = {}
     params['threshold'] = threshold
     url = f'{threshold_url}/{select_by}/{selector}'
-    response = requests.get(url, params = params)
+    response = requests.get(url, params = params, verify=False)
     if response.ok:
         thresholds_json = response.json()
         #Get metadata
@@ -913,7 +965,10 @@ def get_thresholds(threshold_url, select_by, selector, threshold = 'all'):
                 flows['usgs_site_code'] = threshold_data.get('metadata').get('usgs_site_code')
                 stages['units'] = threshold_data.get('metadata').get('stage_units')
                 flows['units'] = threshold_data.get('metadata').get('calc_flow_units')
-    return stages, flows
+        return stages, flows
+    else:
+        print("WRDS response error: ")
+#        print(response)
 
 ########################################################################
 # Function to write flow file
@@ -1071,7 +1126,7 @@ def ngvd_to_navd_ft(datum_info, region = 'contiguous'):
         lon = datum_info['lon']
     
     #Define url for datum API
-    datum_url = 'https://vdatum.noaa.gov/vdatumweb/api/tidal'     
+    datum_url = 'https://vdatum.noaa.gov/vdatumweb/api/convert'     
     
     #Define parameters. Hard code most parameters to convert NGVD to NAVD.    
     params = {}
@@ -1086,17 +1141,19 @@ def ngvd_to_navd_ft(datum_info, region = 'contiguous'):
     params['tar_vertical_unit'] = 'm' #Target vertical height
     
     #Call the API
-    response = requests.get(datum_url, params = params)
-    #If succesful get the navd adjustment
+    response = requests.get(datum_url, params = params, verify=False)
+
+    #If successful get the navd adjustment
     if response:
         results = response.json()
         #Get adjustment in meters (NGVD29 to NAVD88)
-        adjustment = results['tar_height']
+        adjustment = results['t_z']
         #convert meters to feet
         adjustment_ft = round(float(adjustment) * 3.28084,2)                
     else:
         adjustment_ft = None
-    return adjustment_ft       
+    return adjustment_ft    
+   
 #######################################################################
 #Function to download rating curve from API
 #######################################################################
@@ -1121,12 +1178,13 @@ def get_rating_curve(rating_curve_url, location_ids):
     #Define DataFrame to contain all returned curves.
     all_curves = pd.DataFrame()
     
+    print(location_ids)
     #Define call to retrieve all rating curve information from WRDS.
     joined_location_ids = '%2C'.join(location_ids)
     url = f'{rating_curve_url}/{joined_location_ids}'
     
     #Call the API 
-    response = requests.get(url)
+    response = requests.get(url, verify=False)
 
     #If successful
     if response.ok:
@@ -1152,7 +1210,7 @@ def get_rating_curve(rating_curve_url, location_ids):
                 curve_df['wrds_timestamp'] = response.headers['Date']
 
                 #Append rating curve to DataFrame containing all curves
-                all_curves = all_curves.append(curve_df)
+                all_curves = pd.concat([all_curves, curve_df])
             else:
                 continue
 
@@ -1282,7 +1340,7 @@ def process_extent(extent, profile, output_raster = False):
         
     #Convert extent to feature and explode geometry
     poly_extent = raster_to_feature(extent, profile, footprint_only = True)
-    poly_extent = poly_extent.explode()
+    poly_extent = poly_extent.explode(index_parts=True)
     
     #Fill holes in extent
     poly_extent_fill_holes=MultiPolygon(Polygon(p.exterior) for p in poly_extent['geometry'])
@@ -1293,7 +1351,7 @@ def process_extent(extent, profile, output_raster = False):
     #Dissolve filled holes with main map and explode
     poly_extent['dissolve_field'] = 1
     poly_extent = poly_extent.dissolve(by = 'dissolve_field')
-    poly_extent = poly_extent.explode()
+    poly_extent = poly_extent.explode(index_parts=True)
     poly_extent = poly_extent.reset_index()
     
     #Convert filled polygon back to raster

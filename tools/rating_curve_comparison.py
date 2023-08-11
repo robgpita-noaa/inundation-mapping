@@ -78,6 +78,7 @@ def generate_rating_curve_metrics(args):
     catfim_flows_filename       = args[7]
     huc                         = args[8]
     alt_plot                    = args[9]
+    single_plot                 = args[10]
 
     logging.info("Generating rating curve metrics for huc: " + str(huc))
     elev_table = pd.read_csv(elev_table_filename,dtype={'location_id': object, 'feature_id':object,'HydroID':object, 'levpa_id':object})
@@ -106,7 +107,7 @@ def generate_rating_curve_metrics(args):
             if hydrotable.empty:
                 hydrotable = branch_hydrotable
             else:
-                hydrotable = hydrotable.append(branch_hydrotable)
+                hydrotable = pd.concat([hydrotable, branch_hydrotable])
 
         # Join rating curves with elevation data
         #elev_table.rename(columns={'feature_id':'fim_feature_id'}, inplace=True)
@@ -135,10 +136,10 @@ def generate_rating_curve_metrics(args):
                 limited_hydrotable_default = hydrotable.filter(items=['location_id','elevation_ft', 'default_discharge_cfs','HydroID', 'levpa_id', 'dem_adj_elevation'])
                 limited_hydrotable_default['discharge_cfs'] = limited_hydrotable_default.default_discharge_cfs
                 limited_hydrotable_default['source'] = "FIM_default"
-                rating_curves = limited_hydrotable.append(select_usgs_gages)
-                rating_curves = rating_curves.append(limited_hydrotable_default)
+                rating_curves = pd.concat([limited_hydrotable, select_usgs_gages])
+                rating_curves = pd.concat([rating_curves, limited_hydrotable_default])
             else:
-                rating_curves = limited_hydrotable.append(select_usgs_gages)
+                rating_curves = pd.concat([limited_hydrotable, select_usgs_gages])
 
             # Add stream order
             stream_orders = hydrotable.filter(items=['location_id','order_']).drop_duplicates()
@@ -163,7 +164,7 @@ def generate_rating_curve_metrics(args):
 
             # Append catfim data (already set up in format similar to nwm_recurr_intervals_all)
             cat_fim = pd.read_csv(catfim_flows_filename, dtype={'feature_id':str})
-            nwm_recurr_intervals_all = nwm_recurr_intervals_all.append(cat_fim)
+            nwm_recurr_intervals_all = pd.concat([nwm_recurr_intervals_all, cat_fim])
 
             # Convert discharge to cfs and filter
             nwm_recurr_intervals_all['discharge_cfs'] = nwm_recurr_intervals_all.discharge_cms * 35.3147
@@ -228,7 +229,7 @@ def generate_rating_curve_metrics(args):
 
                 # Melt dataframe
                 usgs_pred_elev = pd.melt(usgs_pred_elev, id_vars=['location_id','feature_id','recurr_interval','discharge_cfs','HUC','HUC4','str_order'], value_vars=['USGS','FIM'], var_name="source", value_name='elevation_ft')
-                nwm_recurr_data_table = nwm_recurr_data_table.append(usgs_pred_elev)
+                nwm_recurr_data_table = pd.concat([nwm_recurr_data_table, usgs_pred_elev])
 
                 # Interpolate FIM elevation at USGS observations
                 # fim_rc = fim_rc.merge(usgs_crosswalk, on="location_id")
@@ -246,7 +247,7 @@ def generate_rating_curve_metrics(args):
                 # usgs_rc = pd.melt(usgs_rc, id_vars=['location_id','discharge_cfs','str_order'], value_vars=['USGS','FIM'], var_name="source", value_name='elevation_ft')
                 #
                 # if not usgs_rc.empty:
-                #     usgs_recurr_data = usgs_recurr_data.append(usgs_rc)
+                #     usgs_recurr_data = pd.concat([usgs_recurr_data, usgs_rc])
 
             # Generate stats for all sites in huc
             # if not usgs_recurr_data.empty:
@@ -267,9 +268,10 @@ def generate_rating_curve_metrics(args):
             # plot rating curves
             if alt_plot:
                 generate_rc_and_rem_plots(rating_curves, rc_comparison_plot_filename, nwm_recurr_data_table, branches_folder)
+            elif single_plot:
+                generate_single_plot(rating_curves, rc_comparison_plot_filename, nwm_recurr_data_table)
             else:
                 generate_facet_plot(rating_curves, rc_comparison_plot_filename, nwm_recurr_data_table)
-
         else:
             logging.info(f"no USGS data for gage(s): {relevant_gages} in huc {huc}")
     else:
@@ -301,7 +303,6 @@ def aggregate_metrics(output_dir,procs_list,stat_groups):
         #         usgs_recurr_stats.to_csv(agg_usgs_interp_elev_stats,index=False, mode='a',header=False)
         #     else:
         #         usgs_recurr_stats.to_csv(agg_usgs_interp_elev_stats,index=False)
-
         if os.path.isfile(huc[4]):
             nwm_recurr_data = pd.read_csv(huc[4],dtype={'location_id': str,
                                                         'feature_id': str})
@@ -321,6 +322,92 @@ def aggregate_metrics(output_dir,procs_list,stat_groups):
 
     return agg_recurr_stats_table
 
+
+def generate_single_plot(rc, plot_filename, recurr_data_table):
+
+    tmp_rc = rc.copy()
+    
+    # Filter FIM elevation based on USGS data
+    for gage in rc.location_id.unique():
+        rc = rc[rc.location_id==gage]
+
+        plot_filename_splitext = os.path.splitext(plot_filename)
+        gage_plot_filename = plot_filename_splitext[0] + '_' + gage +  plot_filename_splitext[1]
+
+        #print(recurr_data_table.head)
+        try:
+            min_elev = rc.loc[(rc.location_id==gage) & (rc.source=='USGS')].elevation_ft.min()
+            max_elev = rc.loc[(rc.location_id==gage) & (rc.source=='USGS')].elevation_ft.max()
+            min_q = rc.loc[(rc.location_id==gage) & (rc.source=='USGS')].discharge_cfs.min()
+            max_q = rc.loc[(rc.location_id==gage) & (rc.source=='USGS')].discharge_cfs.max()
+            ri100 = recurr_data_table[(recurr_data_table.location_id == gage) & (recurr_data_table.source == 'FIM')].discharge_cfs.max()
+
+            rc = rc.drop(rc[(rc.location_id==gage) & (rc.source=='FIM') & (((rc.elevation_ft > (max_elev + 2)) | (rc.discharge_cfs > ri100)) & (rc.discharge_cfs > max_q))].index)
+            rc = rc.drop(rc[(rc.location_id==gage) & (rc.source=='FIM') & (rc.elevation_ft < min_elev - 2) & (rc.discharge_cfs < min_q)].index)
+
+            if 'default_discharge_cfs' in rc.columns: # Plot both "FIM" and "FIM_default" rating curves
+                rc = rc.drop(rc[(rc.location_id==gage) & (rc.source=='FIM_default') & (((rc.elevation_ft > (max_elev + 2)) | (rc.discharge_cfs > ri100)) & (rc.discharge_cfs > max_q))].index)
+                rc = rc.drop(rc[(rc.location_id==gage) & (rc.source=='FIM_default') & (rc.elevation_ft < min_elev - 2)].index)
+        except Exception as ex:
+            summary = traceback.StackSummary.extract(
+                    traceback.walk_stack(None))
+            logging.info("WARNING: rating curve dataframe not processed correctly...")
+
+        rc = rc.rename(columns={"location_id": "USGS Gage"})
+
+        # split out branch 0 FIM data
+        rc['source_branch'] = np.where((rc.source == 'FIM') & (rc.levpa_id == '0'), 'FIM_b0', np.where((rc.source == 'FIM_default') & (rc.levpa_id == '0'), 'FIM_default_b0', rc.source))
+        #rc['source_branch'] = np.where((rc.source == 'FIM_default') & (rc.levpa_id == '0'), 'FIM_default_b0', rc.source)
+
+        ## Generate rating curve plots
+        num_plots = len(rc["USGS Gage"].unique())
+        if num_plots > 3:
+            columns = num_plots // 3
+        else:
+            columns = 1
+
+        sns.set(style="ticks")
+
+        # Plot both "FIM" and "FIM_default" rating curves
+        if '0' in rc.levpa_id.values: # checks to see if branch zero data exists in the rating curve df
+            hue_order = ['USGS','FIM','FIM_default','FIM_b0','FIM_default_b0'] if 'default_discharge_cfs' in rc.columns else ['USGS','FIM','FIM_b0']
+            kw = {'color': ['blue','green','orange','green','orange'], 'linestyle' : ["-","-","-","--","--"]} if 'default_discharge_cfs' in rc.columns else {'color': ['blue','green','green'], 'linestyle' : ["-","-","--"]}
+        else:
+            hue_order = ['USGS','FIM','FIM_default'] if 'default_discharge_cfs' in rc.columns else ['USGS','FIM']
+            kw = {'color': ['blue','green','orange'], 'linestyle' : ["-","-","-"]} if 'default_discharge_cfs' in rc.columns else {'color': ['blue','green'], 'linestyle' : ["-","_"]}
+        # Facet Grid
+        g = sns.FacetGrid(rc, col="USGS Gage", hue="source_branch", hue_order=hue_order,
+                        sharex=False, sharey=False,col_wrap=columns,
+                        height=3.5, aspect=1.65, hue_kws=kw)
+        g.map(plt.plot, "discharge_cfs", "elevation_ft", linewidth=2, alpha=0.8)
+        g.set_axis_labels(x_var="Discharge (cfs)", y_var="Elevation (ft)")
+
+        ## Plot recurrence intervals
+        axes = g.axes_dict
+        for gage in axes:
+            ax = axes[gage]
+            plt.sca(ax)
+            try:
+                recurr_data = recurr_data_table[(recurr_data_table.location_id == gage) & (recurr_data_table.source == 'FIM')]\
+                    .filter(items=['recurr_interval', 'discharge_cfs'])
+                for i, r in recurr_data.iterrows():
+                    if not r.recurr_interval.isnumeric(): continue # skip catfim flows
+                    l = 'NWM 17C\nRecurrence' if r.recurr_interval == '2' else None # only label 2 yr 
+                    plt.axvline(x=r.discharge_cfs, c='purple', linewidth=0.5, label=l) # plot recurrence intervals
+                    plt.text(r.discharge_cfs, ax.get_ylim()[1] - (ax.get_ylim()[1]-ax.get_ylim()[0])*0.03, r.recurr_interval, size='small', c='purple')
+            except Exception as ex:
+                summary = traceback.StackSummary.extract(
+                        traceback.walk_stack(None))
+                logging.info("WARNING: Could not plot recurrence intervals...")
+
+        # Adjust the arrangement of the plots
+        g.fig.tight_layout(w_pad=1)
+        g.add_legend()
+
+        plt.savefig(gage_plot_filename)
+        plt.close()
+
+        rc = tmp_rc
 
 def generate_facet_plot(rc, plot_filename, recurr_data_table):
     
@@ -573,7 +660,7 @@ def calculate_rc_stats_elev(rc,stat_groups=None):
 
     # Calculate nrmse
     def NRMSE(x):
-        if x['n'][0] == 1:      # when n==1, NRME equation will return an `inf` 
+        if x['n'].values == 1:      # when n==1, NRME equation will return an `inf` 
             return x['sum_y_diff'] ** 0.5
         else:
             return ((x['sum_y_diff'] / x['n']) ** 0.5) / (x['y_max'] - x['y_min'])
@@ -593,7 +680,7 @@ def calculate_rc_stats_elev(rc,stat_groups=None):
     percent_bias = station_rc.apply(lambda x: 100 * (x["yhat_minus_y"].sum() / x[usgs_elev].sum()))\
         .reset_index(stat_groups, drop = False).rename({0: "percent_bias"}, axis=1)
 
-    rc_stat_table = reduce(lambda x,y: pd.merge(x,y, on=stat_groups, how='outer'), [nrmse, mean_abs_y_diff, mean_y_diff, percent_bias])
+    rc_stat_table = reduce(lambda x,y: pd.merge(x,y, on=stat_groups, how='outer'), [n, nrmse, mean_abs_y_diff, mean_y_diff, percent_bias])
 
     return rc_stat_table
 
@@ -707,7 +794,7 @@ def evaluate_results(sierra_results=[], labels=[], save_location=''):
 
     # Combine all dataframes into one
     all_results = sierra_results[0]
-    all_results = all_results.append(sierra_results[1:])
+    all_results = pd.concat([all_results, sierra_results[1:]])
 
     # Melt results for boxplotting
     all_results_melted = all_results.melt(id_vars=["location_id", '_version'], 
@@ -738,7 +825,7 @@ if __name__ == '__main__':
     parser.add_argument('-alt','--alt-plot',help='Generate rating curve plots with REM maps',required=False,default=False,action='store_true')
     parser.add_argument('-eval','--evaluate-results',help='Create a boxplot comparison of multiple input Sierra Test results. \
         Expects 2 arguments: 1) path to the Sierra Test results for comparison and 2) the corresponding label for the boxplot.',required=False,nargs=2,action='append')
-
+    parser.add_argument('-s', '--single-plot', help='Create single plots', action='store_true')
     args = vars(parser.parse_args())
 
     fim_dir = args['fim_dir']
@@ -750,6 +837,7 @@ if __name__ == '__main__':
     stat_groups = args['stat_groups']
     alt_plot = args['alt_plot']
     eval = args['evaluate_results']
+    single_plot = args['single_plot']
     if args['stat_gages']:
         gages_gpkg_filepath = args['stat_gages'][0]
         stat_gages = args['stat_gages'][1]
@@ -792,7 +880,7 @@ if __name__ == '__main__':
         if isfile(elev_table_filename):
             procs_list.append([elev_table_filename, branches_folder, usgs_gages_filename, 
                             usgs_recurr_stats_filename, nwm_recurr_data_filename, rc_comparison_plot_filename,
-                            nwm_flow_dir, catfim_flows_filename, huc, alt_plot])
+                            nwm_flow_dir, catfim_flows_filename, huc, alt_plot, single_plot])
             # Aggregate all of the individual huc elev_tables into one aggregate for accessing all data in one csv
             read_elev_table = pd.read_csv(elev_table_filename, dtype={'location_id':str, 'HydroID':str, 'huc':str, 'feature_id':int})
             read_elev_table['huc'] = huc

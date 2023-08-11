@@ -13,12 +13,18 @@ from utils.shared_functions import getDriver
 import warnings
 warnings.simplefilter("ignore")
 
+##################################
+##
+## Likely Deprecated: File not in use. Noticed Jan 16, 2023
+## Might want to be kept for possible re-use at a later time?
+##
+##################################
 
 def adjust_headwaters(huc,nhd_streams,nwm_headwaters,nws_lids,headwater_id):
 
     # Identify true headwater segments
     nhd_streams_adj = nhd_streams.loc[(nhd_streams.headwaters_id > 0) & (nhd_streams.downstream_of_headwater == False),:].copy()
-    nhd_streams_adj = nhd_streams_adj.explode()
+    nhd_streams_adj = nhd_streams_adj.explode(index_parts=True)
     nhd_streams_adj = nhd_streams_adj.reset_index(drop=True)
 
     if nwm_headwaters["site_id"].dtype != 'int': nwm_headwaters["site_id"] = nwm_headwaters["site_id"].astype(int)
@@ -35,7 +41,7 @@ def adjust_headwaters(huc,nhd_streams,nwm_headwaters,nws_lids,headwater_id):
     #     print (f"nws lid(s) {missing_nws_lids} missing from aggregate dataset in huc {huc}")
 
     # Combine NWM headwaters and AHPS sites to be snapped to NHDPlus HR segments
-    headwater_pts = headwater_limited.append(nws_lid_limited)
+    headwater_pts = pd.concat([headwater_limited, nws_lid_limited])
     headwater_pts = headwater_pts.reset_index(drop=True)
 
     if headwater_pts is not None:
@@ -60,7 +66,7 @@ def adjust_headwaters(huc,nhd_streams,nwm_headwaters,nws_lids,headwater_id):
                 closest_stream = nhd_streams.loc[nhd_streams["nws_lid"]==point[headwater_id]]
 
             try: # Seeing inconsistent geometry objects even after exploding nhd_streams_adj; not sure why this is
-                closest_stream =closest_stream.explode()
+                closest_stream =closest_stream.explode(index_parts=True)
             except:
                 pass
 
@@ -137,7 +143,7 @@ def adjust_headwaters(huc,nhd_streams,nwm_headwaters,nws_lids,headwater_id):
 
         # Identify ajusted nhd headwaters
         nhd_headwater_streams_adj = nhd_streams.loc[nhd_streams['is_headwater'],:]
-        nhd_headwater_streams_adj = nhd_headwater_streams_adj.explode()
+        nhd_headwater_streams_adj = nhd_headwater_streams_adj.explode(index_parts=True)
 
         hw_points = np.zeros(len(nhd_headwater_streams_adj),dtype=object)
         for index,lineString in enumerate(nhd_headwater_streams_adj.geometry):
@@ -153,7 +159,7 @@ def adjust_headwaters(huc,nhd_streams,nwm_headwaters,nws_lids,headwater_id):
         del nhd_headwater_streams_adj
 
         try:
-            combined_pts = snapped_ahps_points.append(nhd_headwater_points_adj)
+            combined_pts = pd.concat([snapped_ahps_points, nhd_headwater_points_adj])
         except:
             combined_pts = nhd_headwater_points_adj.copy()
 
@@ -161,6 +167,14 @@ def adjust_headwaters(huc,nhd_streams,nwm_headwaters,nws_lids,headwater_id):
 
 
 if __name__ == '__main__':
+
+##################################
+##
+## Likely Deprecated: File not in use. Noticed Jan 16, 2023
+## Might want to be kept for possible re-use at a later time?
+##
+##################################
+
 
     parser = argparse.ArgumentParser(description='adjust headwater stream geometery based on headwater start points')
     parser.add_argument('-f','--huc',help='huc number',required=True)
@@ -186,3 +200,4 @@ if __name__ == '__main__':
 
     if adj_headwater_points_fileName is not None:
         adj_headwaters_gdf.to_file(args['adj_headwater_points_fileName'],driver=getDriver(args['adj_headwater_points_fileName']))
+

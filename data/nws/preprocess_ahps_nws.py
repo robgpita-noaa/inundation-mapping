@@ -14,6 +14,15 @@ sys.path.append('/foss_fim/tools')
 from tools_shared_functions import mainstem_nwm_segs, get_metadata, aggregate_wbd_hucs, get_thresholds, get_datum, ngvd_to_navd_ft, get_rating_curve, select_grids, get_nwm_segs, flow_data, process_extent, process_grid, raster_to_feature
 
 
+########################################################
+'''
+Feb 15, 2023 - This file may be deprecated. At a minimum, it needs
+   a significant review and/or upgrade.
+'''
+
+########################################################
+
+
 def get_env_paths():
     load_dotenv()
     #import variables from .env file
@@ -346,7 +355,7 @@ def preprocess_nws(source_dir, destination, reference_raster):
     all_attributes = pd.DataFrame()
     for i in attribute_files:
         attribute_df = pd.read_csv(i, dtype={'huc':str})
-        all_attributes = all_attributes.append(attribute_df)
+        all_attributes = pd.concat([all_attributes, attribute_df])
     
     if not all_attributes.empty:
         all_attributes.to_csv(destination / 'attributes.csv', index = False)    
@@ -354,6 +363,15 @@ def preprocess_nws(source_dir, destination, reference_raster):
 
 
 if __name__ == '__main__':
+    
+    ########################################################
+    '''
+    Feb 15, 2023 - This file may be deprecated. At a minimum, it needs
+    a significant review and/or upgrade.
+    '''
+
+    ########################################################
+    
     #Parse arguments
     parser = argparse.ArgumentParser(description = 'Create preprocessed USGS benchmark datasets at AHPS locations.')
     parser.add_argument('-s', '--source_dir', help = 'Workspace where all source data is located.', required = True)

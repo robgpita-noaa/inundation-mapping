@@ -11,24 +11,26 @@ from multiprocessing import Pool
 from rasterio.merge import merge
 from osgeo import gdal, ogr
 
-sys.path.append('/foss_fim/src')
 from datetime import datetime
-from gms_tools.mosaic_inundation import Mosaic_inundation
-from gms_tools.inundate_gms import Inundate_gms
+from mosaic_inundation import Mosaic_inundation
+from inundate_gms import Inundate_gms
 from inundation import inundate
-from tools_shared_variables import elev_raster_ndv
+
+# setting path
+sys.path.append('/foss_fim/src')
+from utils.shared_variables import elev_raster_ndv, PREP_PROJECTION
 from utils.shared_functions import FIM_Helpers as fh
 
 
 #INUN_REVIEW_DIR = r'/data/inundation_review/inundation_nwm_recurr/'
 #INUN_OUTPUT_DIR = r'/data/inundation_review/inundate_nation/'
 #INPUTS_DIR = r'/data/inputs'
-#OUTPUT_BOOL_PARENT_DIR = '/data/inundation_review/inundate_nation/bool_temp/'
+#OUTPUT_BOOL_PARENT_DIR = '/data/inundation_review/inundate_nation/bool_temp/
 #DEFAULT_OUTPUT_DIR = '/data/inundation_review/inundate_nation/mosaic_output/'
-PREP_PROJECTION = 'PROJCS["USA_Contiguous_Albers_Equal_Area_Conic_USGS_version",GEOGCS["NAD83",DATUM["North_American_Datum_1983",SPHEROID["GRS 1980",6378137,298.2572221010042,AUTHORITY["EPSG","7019"]],AUTHORITY["EPSG","6269"]],PRIMEM["Greenwich",0],UNIT["degree",0.0174532925199433],AUTHORITY["EPSG","4269"]],PROJECTION["Albers_Conic_Equal_Area"],PARAMETER["standard_parallel_1",29.5],PARAMETER["standard_parallel_2",45.5],PARAMETER["latitude_of_center",23],PARAMETER["longitude_of_center",-96],PARAMETER["false_easting",0],PARAMETER["false_northing",0],UNIT["metre",1,AUTHORITY["EPSG","9001"]]]'
 
 
-def inundate_nation(fim_run_dir, output_dir, magnitude_key, flow_file, inc_mosaic, job_number):
+def inundate_nation(fim_run_dir, output_dir, magnitude_key, 
+                    flow_file, inc_mosaic, job_number):
 
     
     assert os.path.isdir(fim_run_dir), f'ERROR: could not find the input fim_dir location: {fim_run_dir}'
@@ -75,10 +77,9 @@ def inundate_nation(fim_run_dir, output_dir, magnitude_key, flow_file, inc_mosai
             huc_list.append(huc)
 
     print('Inundation raw mosaic outputs here: ' + magnitude_output_dir)
-    
-    config = "GMS"
-    
-    run_inundation([fim_run_dir, huc_list, magnitude_key, magnitude_output_dir, config, flow_file, job_number])
+   
+    run_inundation([fim_run_dir, huc_list, magnitude_key,
+                    magnitude_output_dir, flow_file, job_number])
                 
     # Perform mosaic operation
     if inc_mosaic:
@@ -130,7 +131,7 @@ def run_inundation(args):
     This script is a wrapper for the inundate function and is designed for multiprocessing.
     
     Args:
-        args (list): [fim_run_dir (str), huc_list (list), magnitude (str), magnitude_output_dir (str), config (str), forecast (str), job_number (int)]
+        args (list): [fim_run_dir (str), huc_list (list), magnitude (str), magnitude_output_dir (str), forecast (str), job_number (int)]
     
     """
     
@@ -138,39 +139,38 @@ def run_inundation(args):
     huc_list = args[1]
     magnitude = args[2]
     magnitude_output_dir = args[3]
-    config = args[4]
-    forecast = args[5]
-    job_number = args[6]
+    forecast = args[4]
+    job_number = args[5]
    
     # Define file paths for use in inundate().
 
-    inundation_raster = os.path.join(magnitude_output_dir, magnitude + '_' + config + '_inund_extent.tif')
+    inundation_raster = os.path.join(magnitude_output_dir, magnitude + '_inund_extent.tif')
     
     print("Running the NWM recurrence intervals for HUC inundation (extent) for magnitude: " + str(magnitude))
 
     map_file = Inundate_gms( hydrofabric_dir = fim_run_dir, 
-                                    forecast = forecast, 
-                                    num_workers = job_number,
-                                    hucs = huc_list,
-                                    inundation_raster = inundation_raster,
-                                    inundation_polygon = None,
-                                    depths_raster = None,
-                                    verbose = True,
-                                    log_file = None,
-                                    output_fileNames = None )
+                             forecast = forecast, 
+                             num_workers = job_number,
+                             hucs = huc_list,
+                             inundation_raster = inundation_raster,
+                             inundation_polygon = None,
+                             depths_raster = None,
+                             verbose = True,
+                             log_file = None,
+                             output_fileNames = None )
     
     Mosaic_inundation( map_file,
-                                    mosaic_attribute = 'inundation_rasters',
-                                    mosaic_output = inundation_raster,
-                                    #mask = os.path.join(fim_run_dir,huc8,'wbd.gpkg'),
-                                    mask = None,
-                                    unit_attribute_name = 'huc8',
-                                    nodata = elev_raster_ndv,
-                                    workers = 1,
-                                    remove_inputs = True,
-                                    subset = None,
-                                    verbose = True,
-                                    is_mosaic_for_gms_branches = True )
+                       mosaic_attribute = 'inundation_rasters',
+                       mosaic_output = inundation_raster,
+                       #mask = os.path.join(fim_run_dir,huc8,'wbd.gpkg'),
+                       mask = None,
+                       unit_attribute_name = 'huc8',
+                       nodata = elev_raster_ndv,
+                       workers = 1,
+                       remove_inputs = True,
+                       subset = None,
+                       verbose = True,
+                       is_mosaic_for_branches = True )
 
 def create_bool_rasters(args):
     in_raster_dir = args[0]
@@ -195,7 +195,6 @@ def create_bool_rasters(args):
                 blockxsize=512, 
                 blockysize=512,
                 dtype='int8',
-                crs=PREP_PROJECTION,
                 compress='lzw')
     with rasterio.open(output_bool_dir + os.sep + "bool_" + rasfile, 'w', **profile) as dst:
         dst.write(array.astype(rasterio.int8))

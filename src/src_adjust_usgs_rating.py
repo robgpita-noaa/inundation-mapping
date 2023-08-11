@@ -107,7 +107,7 @@ def create_usgs_rating_database(usgs_rc_filepath, usgs_elev_df, nwm_recurr_filep
         calc_df.rename(columns={interval+"_0_year":'nwm_recur_flow_cms'}, inplace=True)
         # Subset calc_df for final output
         calc_df = calc_df[['location_id','hydroid','feature_id','levpa_id','huc','hand','discharge_cms','check_variance','nwm_recur_flow_cms','nwm_recur','layer']]
-        final_df = final_df.append(calc_df, ignore_index=True)
+        final_df = pd.concat([final_df, calc_df], ignore_index=True)
         # Log any negative HAND elev values and remove from database
         log_text += ('Warning: Negative HAND stage values -->\n')
         log_text += (calc_df[calc_df['hand']<0].to_string() +'\n')
@@ -138,8 +138,6 @@ def create_usgs_rating_database(usgs_rc_filepath, usgs_elev_df, nwm_recurr_filep
     return(final_df)
 
 def branch_proc_list(usgs_df,run_dir,debug_outputs_option,log_file):
-    huc_list = usgs_df['huc'].tolist()
-    huc_list = list(set(huc_list))
     procs_list = []  # Initialize list for mulitprocessing.
 
     # loop through all unique level paths that have a USGS gage
@@ -147,7 +145,7 @@ def branch_proc_list(usgs_df,run_dir,debug_outputs_option,log_file):
     #branch_huc_dict = usgs_df.set_index('huc').T.to_dict('list')
     huc_branch_dict = usgs_df.groupby('huc')['levpa_id'].apply(set).to_dict()
 
-    for huc in huc_branch_dict:
+    for huc in sorted(huc_branch_dict.keys()): # sort huc_list for helping track progress in future print statments
         branch_set = huc_branch_dict[huc]
         for branch_id in branch_set: 
             # Define paths to branch HAND data.

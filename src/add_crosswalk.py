@@ -8,24 +8,41 @@ from rasterstats import zonal_stats
 import json
 import argparse
 import sys
-from bathy_rc_adjust import bathy_rc_lookup
 from utils.shared_functions import getDriver
-# sys.path.append('/foss_fim/src')
-# sys.path.append('/foss_fim/config')
 from utils.shared_functions import getDriver, mem_profile
 from utils.shared_variables import FIM_ID
 from memory_profiler import profile
 
+# Feb 17, 2023
+# We want to explore using FR methodology as branch zero
 
 @mem_profile
-def add_crosswalk(input_catchments_fileName,input_flows_fileName,input_srcbase_fileName,output_catchments_fileName,output_flows_fileName,output_src_fileName,output_src_json_fileName,output_crosswalk_fileName,output_hydro_table_fileName,input_huc_fileName,input_nwmflows_fileName,input_nwmcatras_fileName,mannings_n,input_nwmcat_fileName,extent,small_segments_filename,calibration_mode=False):
+def add_crosswalk(input_catchments_fileName,
+                  input_flows_fileName,
+                  input_srcbase_fileName,
+                  output_catchments_fileName,
+                  output_flows_fileName,
+                  output_src_fileName,
+                  output_src_json_fileName,
+                  output_crosswalk_fileName,
+                  output_hydro_table_fileName,
+                  input_huc_fileName,
+                  input_nwmflows_fileName,
+                  input_nwmcatras_fileName,
+                  mannings_n,
+                  input_nwmcat_fileName,
+                  extent,
+                  small_segments_filename,
+                  min_catchment_area,
+                  min_stream_length,
+                  calibration_mode=False):
 
     input_catchments = gpd.read_file(input_catchments_fileName)
     input_flows = gpd.read_file(input_flows_fileName)
     input_huc = gpd.read_file(input_huc_fileName)
     input_nwmflows = gpd.read_file(input_nwmflows_fileName)
-    min_catchment_area = float(os.environ['min_catchment_area']) #0.25#
-    min_stream_length = float(os.environ['min_stream_length']) #0.5#
+    min_catchment_area = float(min_catchment_area) #0.25#
+    min_stream_length = float(min_stream_length) #0.5#
 
     if extent == 'FR':
         ## crosswalk using majority catchment method
@@ -80,7 +97,7 @@ def add_crosswalk(input_catchments_fileName,input_flows_fileName,input_srcbase_f
         input_flows_midpoint = input_flows_midpoint.set_index('HydroID')
 
         # Create crosswalk
-        crosswalk = gpd.sjoin(input_flows_midpoint, input_nwmcat, how='left', op='within').reset_index()
+        crosswalk = gpd.sjoin(input_flows_midpoint, input_nwmcat, how='left', predicate='within').reset_index()
         crosswalk = crosswalk.rename(columns={"index_right": "feature_id"})
 
         # fill in missing ms
@@ -117,17 +134,7 @@ def add_crosswalk(input_catchments_fileName,input_flows_fileName,input_srcbase_f
 
         output_flows = output_flows.merge(output_catchments.filter(items=['HydroID','areasqkm']),on='HydroID')
 
-    # read in manning's n values
-    if calibration_mode == False:
-        with open(mannings_n, "r") as read_file:
-            mannings_dict = json.load(read_file)
-    else:
-        mannings_dict = {}
-        for cnt,value in enumerate(mannings_n.split(",")[2:]):
-            streamorder = cnt+1
-            mannings_dict[str(streamorder)] = value
-
-    output_flows['ManningN'] = output_flows['order_'].astype(str).map(mannings_dict)
+    output_flows['ManningN'] = mannings_n
 
     if output_flows.NextDownID.dtype != 'int': output_flows.NextDownID = output_flows.NextDownID.astype(int)
 
@@ -181,7 +188,7 @@ def add_crosswalk(input_catchments_fileName,input_flows_fileName,input_srcbase_f
                 update_id = output_flows.loc[output_flows.HydroID==short_id]['HydroID'].item()
 
             str_order = output_flows.loc[output_flows.HydroID==short_id]['order_'].item()
-            sml_segs = sml_segs.append({'short_id':short_id, 'update_id':update_id, 'str_order':str_order}, ignore_index=True)
+            sml_segs = pd.concat([sml_segs, pd.DataFrame({'short_id':[short_id], 'update_id':[update_id], 'str_order':[str_order]})], ignore_index=True)
 
     print("Number of short reaches [{} < {} and {} < {}] = {}".format("areasqkm", min_catchment_area, "LengthKm", min_stream_length, len(sml_segs)))
 
@@ -204,8 +211,9 @@ def add_crosswalk(input_catchments_fileName,input_flows_fileName,input_srcbase_f
 
     # set nans to 0
     input_src_base.loc[input_src_base['Stage']==0,['Discharge (m3s-1)']] = 0
+    input_src_base['Bathymetry_source'] = pd.NA
 
-    output_src = input_src_base.drop(columns=['CatchId'])
+    output_src = input_src_base.drop(columns=['CatchId']).copy()
     if output_src.HydroID.dtype != 'int': output_src.HydroID = output_src.HydroID.astype(int)
 
     # update rating curves
@@ -231,33 +239,34 @@ def add_crosswalk(input_catchments_fileName,input_flows_fileName,input_srcbase_f
     output_crosswalk = output_src[['HydroID','feature_id']]
     output_crosswalk = output_crosswalk.drop_duplicates(ignore_index=True)
 
-    ## bathy estimation integration in synthetic rating curve calculations
-    #if (bathy_src_calc == True and extent == 'MS'):
-    #    output_src = bathy_rc_lookup(output_src,input_bathy_fileName,output_bathy_fileName,output_bathy_streamorder_fileName,output_bathy_thalweg_fileName,output_bathy_xs_lookup_fileName)
-    #else:
-    #    print('Note: NOT using bathy estimation approach to modify the SRC...')
-
     # make hydroTable
-    output_hydro_table = output_src.loc[:,['HydroID','feature_id','NextDownID','order_','Number of Cells','SurfaceArea (m2)','BedArea (m2)','TopWidth (m)','LENGTHKM','AREASQKM','WettedPerimeter (m)','HydraulicRadius (m)','WetArea (m2)','Volume (m3)','SLOPE','ManningN','Stage','Discharge (m3s-1)']]
+    output_hydro_table = output_src.loc[:,['HydroID','feature_id','NextDownID','order_','Number of Cells','SurfaceArea (m2)',
+        'BedArea (m2)','TopWidth (m)','LENGTHKM','AREASQKM','WettedPerimeter (m)','HydraulicRadius (m)','WetArea (m2)',
+        'Volume (m3)','SLOPE','ManningN','Stage','Discharge (m3s-1)']]
     output_hydro_table.rename(columns={'Stage' : 'stage','Discharge (m3s-1)':'discharge_cms'},inplace=True)
     ## Set placeholder variables to be replaced in post-processing (as needed). Create here to ensure consistent column vars
-    output_hydro_table['barc_on'] = False # set barc_on attribute to Fasle (default) --> will be overwritten if BARC module runs
-    output_hydro_table['raw_discharge_cms'] = output_src['Discharge (m3s-1)']
-    output_hydro_table['raw_Volume (m3)'] = output_src['Volume (m3)']
-    output_hydro_table['raw_WetArea (m2)'] = output_src['WetArea (m2)']
-    output_hydro_table['raw_HydraulicRadius (m)'] = output_src['HydraulicRadius (m)']
-    output_hydro_table['vmann_on'] = False # set vmann_on attribute to Fasle (default) --> will be overwritten if variable roughness module runs
-    output_hydro_table['raw_ManningN'] = output_src['ManningN']
-    output_hydro_table['vmann_discharge_cms'] = pd.NA
-    output_hydro_table['vmann_ManningN'] = pd.NA
-    output_hydro_table['adjust_src_on'] = False
+    ## These variables represent the original unmodified values
+    output_hydro_table['default_discharge_cms'] = output_src['Discharge (m3s-1)']
+    output_hydro_table['default_Volume (m3)'] = output_src['Volume (m3)']
+    output_hydro_table['default_WetArea (m2)'] = output_src['WetArea (m2)']
+    output_hydro_table['default_HydraulicRadius (m)'] = output_src['HydraulicRadius (m)']
+    output_hydro_table['default_ManningN'] = output_src['ManningN']
+    ## Placeholder vars for BARC
+    output_hydro_table['Bathymetry_source'] = pd.NA
+    ## Placeholder vars for subdivision routine
+    output_hydro_table['subdiv_applied'] = False
+    output_hydro_table['overbank_n'] = pd.NA
+    output_hydro_table['channel_n'] = pd.NA
+    output_hydro_table['subdiv_discharge_cms'] = pd.NA
+    ## Placeholder vars for the calibration routine
+    output_hydro_table['calb_applied'] = False
     output_hydro_table['last_updated'] = pd.NA
     output_hydro_table['submitter'] = pd.NA
-    output_hydro_table['adjust_ManningN'] = pd.NA
     output_hydro_table['obs_source'] = pd.NA
-    output_hydro_table['default_discharge_cms'] = pd.NA
-    output_hydro_table['default_ManningN'] = pd.NA
-
+    output_hydro_table['precalb_discharge_cms'] = pd.NA
+    output_hydro_table['calb_coef_usgs'] = pd.NA
+    output_hydro_table['calb_coef_spatial'] = pd.NA
+    output_hydro_table['calb_coef_final'] = pd.NA
 
     if output_hydro_table.HydroID.dtype != 'str': output_hydro_table.HydroID = output_hydro_table.HydroID.astype(str)
     output_hydro_table[FIM_ID] = output_hydro_table.loc[:,'HydroID'].apply(lambda x : str(x)[0:4])
@@ -275,38 +284,34 @@ def add_crosswalk(input_catchments_fileName,input_flows_fileName,input_srcbase_f
     if output_hydro_table.feature_id.dtype != 'int': output_hydro_table.feature_id = output_hydro_table.feature_id.astype(int)
     if output_hydro_table.feature_id.dtype != 'str': output_hydro_table.feature_id = output_hydro_table.feature_id.astype(str)
 
-    # write out based on mode
-    if calibration_mode == True:
-        output_hydro_table.to_csv(output_hydro_table_fileName,index=False)
-    else:
-        # make src json
-        output_src_json = dict()
-        hydroID_list = unique(output_src['HydroID'])
+    # make src json
+    output_src_json = dict()
+    hydroID_list = unique(output_src['HydroID'])
 
-        for hid in hydroID_list:
-            indices_of_hid = output_src['HydroID'] == hid
-            stage_list = output_src['Stage'][indices_of_hid].astype(float)
-            q_list = output_src['Discharge (m3s-1)'][indices_of_hid].astype(float)
+    for hid in hydroID_list:
+        indices_of_hid = output_src['HydroID'] == hid
+        stage_list = output_src['Stage'][indices_of_hid].astype(float)
+        q_list = output_src['Discharge (m3s-1)'][indices_of_hid].astype(float)
 
-            stage_list = stage_list.tolist()
-            q_list = q_list.tolist()
+        stage_list = stage_list.tolist()
+        q_list = q_list.tolist()
 
-            output_src_json[str(hid)] = { 'q_list' : q_list , 'stage_list' : stage_list }
+        output_src_json[str(hid)] = { 'q_list' : q_list , 'stage_list' : stage_list }
 
-        # write out
-        output_catchments.to_file(output_catchments_fileName,driver=getDriver(output_catchments_fileName),index=False)
-        output_flows.to_file(output_flows_fileName,driver=getDriver(output_flows_fileName),index=False)
-        output_src.to_csv(output_src_fileName,index=False)
-        output_crosswalk.to_csv(output_crosswalk_fileName,index=False)
-        output_hydro_table.to_csv(output_hydro_table_fileName,index=False)
+    # write out
+    output_catchments.to_file(output_catchments_fileName,driver=getDriver(output_catchments_fileName),index=False)
+    output_flows.to_file(output_flows_fileName,driver=getDriver(output_flows_fileName),index=False)
+    output_src.to_csv(output_src_fileName,index=False)
+    output_crosswalk.to_csv(output_crosswalk_fileName,index=False)
+    output_hydro_table.to_csv(output_hydro_table_fileName,index=False)
 
-        with open(output_src_json_fileName,'w') as f:
-            json.dump(output_src_json,f,sort_keys=True,indent=2)
+    with open(output_src_json_fileName,'w') as f:
+        json.dump(output_src_json,f,sort_keys=True,indent=2)
 
 
 if __name__ == '__main__':
 
-    parser = argparse.ArgumentParser(description='Crosswalk for MS/FR networks; calculate synthetic rating curves; update short rating curves')
+    parser = argparse.ArgumentParser(description='Crosswalk for MS/FR/GMS networks; calculate synthetic rating curves; update short rating curves')
     parser.add_argument('-d','--input-catchments-fileName', help='DEM derived catchments', required=True)
     parser.add_argument('-a','--input-flows-fileName', help='DEM derived streams', required=True)
     parser.add_argument('-s','--input-srcbase-fileName', help='Base synthetic rating curve table', required=True)
@@ -321,28 +326,13 @@ if __name__ == '__main__':
     parser.add_argument('-y','--input-nwmcatras-fileName',help='NWM catchment raster',required=False)
     parser.add_argument('-m','--mannings-n',help='Mannings n. Accepts single parameter set or list of parameter set in calibration mode. Currently input as csv.',required=True)
     parser.add_argument('-z','--input-nwmcat-fileName',help='NWM catchment polygon',required=True)
-    parser.add_argument('-p','--extent',help='MS or FR extent',required=True)
+    parser.add_argument('-p','--extent',help='GMS only for now', default='GMS', required=False)
     parser.add_argument('-k','--small-segments-filename',help='output list of short segments',required=True)
     parser.add_argument('-c','--calibration-mode',help='Mannings calibration flag',required=False,action='store_true')
+    parser.add_argument('-e', '--min-catchment-area', help='Minimum catchment area', required=True)
+    parser.add_argument('-g', '--min-stream-length', help='Minimum stream length', required=True)
 
     args = vars(parser.parse_args())
 
-    input_catchments_fileName = args['input_catchments_fileName']
-    input_flows_fileName = args['input_flows_fileName']
-    input_srcbase_fileName = args['input_srcbase_fileName']
-    output_catchments_fileName = args['output_catchments_fileName']
-    output_flows_fileName = args['output_flows_fileName']
-    output_src_fileName = args['output_src_fileName']
-    output_src_json_fileName = args['output_src_json_fileName']
-    output_crosswalk_fileName = args['output_crosswalk_fileName']
-    output_hydro_table_fileName = args['output_hydro_table_fileName']
-    input_huc_fileName = args['input_huc_fileName']
-    input_nwmflows_fileName = args['input_nwmflows_fileName']
-    input_nwmcatras_fileName = args['input_nwmcatras_fileName']
-    mannings_n = args['mannings_n']
-    input_nwmcat_fileName = args['input_nwmcat_fileName']
-    extent = args['extent']
-    small_segments_filename = args['small_segments_filename']
-    calibration_mode = args['calibration_mode']
-
-    add_crosswalk(input_catchments_fileName,input_flows_fileName,input_srcbase_fileName,output_catchments_fileName,output_flows_fileName,output_src_fileName,output_src_json_fileName,output_crosswalk_fileName,output_hydro_table_fileName,input_huc_fileName,input_nwmflows_fileName,input_nwmcatras_fileName,mannings_n,input_nwmcat_fileName,extent,small_segments_filename,calibration_mode)
+    add_crosswalk(**args)
+   

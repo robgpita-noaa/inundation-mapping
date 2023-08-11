@@ -5,8 +5,8 @@ import pandas as pd
 
 from tools_shared_variables import TEST_CASES_DIR, INPUTS_DIR, PREVIOUS_FIM_DIR, OUTPUTS_DIR, AHPS_BENCHMARK_CATEGORIES, MAGNITUDE_DICT, elev_raster_ndv
 from inundation import inundate
-from gms_tools.mosaic_inundation import Mosaic_inundation
-from gms_tools.inundate_gms import Inundate_gms
+from mosaic_inundation import Mosaic_inundation
+from inundate_gms import Inundate_gms
 from tools_shared_functions import compute_contingency_stats_from_rasters
 from utils.shared_functions import FIM_Helpers as fh
 
@@ -75,12 +75,12 @@ class test_case(benchmark):
                 ID of the test case in huc8_category format, e.g. `12090201_ble`.
             version : str
                 Version of FIM to which this test_case belongs. This should correspond to the fim directory
-                name in either `/data/previous_fim/` or `/data/outputs/`.
+                name in either `/data/previous_fim/` or `/outputs/`.
             archive : bool
                 If true, this test case outputs will be placed into the `official_versions` folder
                 and the FIM model will be read from the `/data/previous_fim` folder.
                 If false, it will be saved to the `testing_versions/` folder and the FIM model 
-                will be read from the `/data/outputs/` folder.
+                will be read from the `/outputs/` folder.
         
         """
         self.test_id = test_id
@@ -103,14 +103,13 @@ class test_case(benchmark):
         self.benchmark_dir = os.path.join(self.validation_data, self.huc)
 
         # Create list of shapefile paths to use as exclusion areas.
-        zones_dir = os.path.join(TEST_CASES_DIR, 'other', 'zones')
         self.mask_dict = {'levees':
                         {'path': '/data/inputs/nld_vectors/Levee_protected_areas.gpkg',
                         'buffer': None,
                         'operation': 'exclude'
                         },
                     'waterbodies':
-                        {'path': os.path.join(zones_dir, 'nwm_v2_reservoirs.shp'),
+                        {'path': '/data/inputs/nwm_hydrofabric/nwm_lakes.gpkg',
                         'buffer': None,
                         'operation': 'exclude',
                         },
@@ -124,12 +123,12 @@ class test_case(benchmark):
             ----------
             version : str
                 Version of FIM to which this test_case belongs. This should correspond to the fim directory
-                name in either `/data/previous_fim/` or `/data/outputs/`.
+                name in either `/data/previous_fim/` or `/outputs/`.
             archive : bool
                 If true, this test case outputs will be placed into the `official_versions` folder
                 and the FIM model will be read from the `/data/previous_fim` folder.
                 If false, it will be saved to the `testing_versions/` folder and the FIM model 
-                will be read from the `/data/outputs/` folder.
+                will be read from the `/outputs/` folder.
         """
         if not benchmark_categories:
             benchmark_categories = list(cls.MAGNITUDE_DICT.keys())
@@ -285,7 +284,7 @@ class test_case(benchmark):
         # Inundate REM
         if not compute_only:             # composite alpha tests don't need to be inundated
             if model == 'GMS':
-                fh.vprint("Begin GMS Inundation", verbose)
+                fh.vprint("Begin FIM4 Inundation", verbose)
                 map_file = Inundate_gms( hydrofabric_dir = os.path.dirname(self.fim_dir), 
                                          forecast = benchmark_flows, 
                                          num_workers = gms_workers,
@@ -297,7 +296,7 @@ class test_case(benchmark):
                                          log_file = None,
                                          output_fileNames = None )
                 #if (len(map_file) > 0):
-                fh.vprint("Begin GMS Mosaic", verbose)
+                fh.vprint("Begin FIM4 Mosaic", verbose)
                 Mosaic_inundation( map_file,
                                     mosaic_attribute = 'inundation_rasters',
                                     mosaic_output = predicted_raster_path,

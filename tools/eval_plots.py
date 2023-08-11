@@ -8,6 +8,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import re
+import glob
 import os
 import sys
 sys.path.append('/foss_fim/src')
@@ -24,7 +25,9 @@ API_BASE_URL = os.getenv("API_BASE_URL")
 #########################################################################
 #Create boxplot
 #########################################################################
-def boxplot(dataframe, x_field, x_order, y_field, hue_field, ordered_hue, title_text, fim_configuration, textbox_str = False, simplify_legend = False, dest_file = False):
+def boxplot(dataframe, x_field, x_order, y_field, hue_field, ordered_hue,
+            title_text, fim_configuration, textbox_str = False, 
+            simplify_legend = False, dest_file = False):
     '''
     Create boxplots.
 
@@ -96,7 +99,7 @@ def boxplot(dataframe, x_field, x_order, y_field, hue_field, ordered_hue, title_
         #Define simplified labels as a list.
         new_labels = [label_dict[label] for label in org_labels]
         #Define legend location. FAR needs to be in different location than CSI/POD.
-        if y_field in ['FAR', 'PND']:
+        if y_field in ['FAR', 'PND','EQUITABLE_THREAT_SCORE']:
             legend_location = 'upper right'
         else:
             legend_location = 'lower left'
@@ -191,7 +194,9 @@ def scatterplot(dataframe, x_field, y_field, title_text, stats_text=False, annot
 #########################################################################
 #Create barplot
 #########################################################################
-def barplot(dataframe, x_field, x_order, y_field, hue_field, ordered_hue, title_text, fim_configuration, textbox_str = False, simplify_legend = False, display_values = False, dest_file = False):
+def barplot(dataframe, x_field, x_order, y_field, hue_field, ordered_hue, 
+            title_text, fim_configuration, textbox_str = False, 
+            simplify_legend = False, display_values = False, dest_file = False):
     '''
     Create barplots.
 
@@ -336,14 +341,16 @@ def filter_dataframe(dataframe, unique_field):
         #Query filtered dataframe and only include data associated with the common sites for that magnitude
         filtered_common_sites = dataframe.query(f'magnitude == "{magnitude}" & {unique_field} in @common_sites_per_magnitude')
         #Append the data for each magnitude to a final dataframe that will contain data for all common sites for all magnitudes.
-        final_filtered_dataframe = final_filtered_dataframe.append(filtered_common_sites, ignore_index = True)
+        final_filtered_dataframe = pd.concat([final_filtered_dataframe,  filtered_common_sites], ignore_index = True)
 
     return final_filtered_dataframe, all_unique_sites
 ##############################################################################
 ##############################################################################
 #Main function to analyze metric csv.
 ##############################################################################
-def eval_plots(metrics_csv, workspace, versions = [], stats = ['CSI','FAR','TPR','PND'] , spatial = False, fim_1_ms = False, site_barplots = False):
+def eval_plots(metrics_csv, workspace, versions = [], 
+               stats = ['CSI','FAR','TPR','PND','MCC','EQUITABLE_THREAT_SCORE'] , spatial = False,
+               fim_1_ms = False, site_barplots = False):
 
     '''
     Creates plots and summary statistics using metrics compiled from
@@ -453,12 +460,12 @@ def eval_plots(metrics_csv, workspace, versions = [], stats = ['CSI','FAR','TPR'
         #Set extent configuration to MS (instead of FR)
         fim_1_rows['extent_config'] = 'MS'
         #Append duplicate FIM 1 rows to original dataframe
-        csv_df = csv_df.append(fim_1_rows, ignore_index = True)
+        csv_df = pd.concat([csv_df, fim_1_rows], ignore_index = True)
 
     # If versions are supplied then filter out
     if versions:
         #Filter out versions based on supplied version list
-        metrics = csv_df.query('version.str.startswith(tuple(@versions))', engine='python')
+        metrics = csv_df.query("version == @versions")
     else:
         metrics = csv_df
 
@@ -616,7 +623,7 @@ def eval_plots(metrics_csv, workspace, versions = [], stats = ['CSI','FAR','TPR'
                 nws_dataset, sites = all_datasets.get(('nws','COMP'))
             #Append usgs/nws dataframes and filter unnecessary columns and rename remaining.
             all_ahps_datasets = pd.concat([usgs_dataset, nws_dataset])
-            all_ahps_datasets = all_ahps_datasets.filter(['huc','nws_lid','version','magnitude','TP_area_km2','FP_area_km2','TN_area_km2','FN_area_km2','CSI','FAR','TPR','PND','benchmark_source'])
+            all_ahps_datasets = all_ahps_datasets.filter(['huc','nws_lid','version','magnitude','TP_area_km2','FP_area_km2','TN_area_km2','FN_area_km2','CSI','FAR','TPR','PND','MCC','EQUITABLE_THREAT_SCORE','benchmark_source'])
             all_ahps_datasets.rename(columns = {'benchmark_source':'source'}, inplace = True)
 
             #Get spatial data from WRDS
@@ -661,7 +668,7 @@ def eval_plots(metrics_csv, workspace, versions = [], stats = ['CSI','FAR','TPR'
             #Join metrics to HUC spatial layer
             wbd_with_metrics = wbd_gdf.merge(huc_datasets, how = 'inner', left_on = 'HUC8', right_on = 'huc')
             #Filter out unnecessary columns
-            wbd_with_metrics = wbd_with_metrics.filter(['version','magnitude','huc','TP_area_km2','FP_area_km2','TN_area_km2','FN_area_km2','CSI','FAR','TPR','PND','benchmark_source','geometry'])
+            wbd_with_metrics = wbd_with_metrics.filter(['version','magnitude','huc','TP_area_km2','FP_area_km2','TN_area_km2','FN_area_km2','CSI','FAR','TPR','PND','MCC','EQUITABLE_THREAT_SCORE','benchmark_source','geometry'])
             wbd_with_metrics.rename(columns = {'benchmark_source':'source'}, inplace = True )
             #Project to VIZ projection
             wbd_with_metrics = wbd_with_metrics.to_crs(VIZ_PROJECTION)
@@ -669,6 +676,19 @@ def eval_plots(metrics_csv, workspace, versions = [], stats = ['CSI','FAR','TPR'
             wbd_with_metrics.to_file(Path(workspace) / 'fim_performance_polys.shp')
         else:
             print('BLE/IFC/RAS2FIM FR datasets not analyzed, no spatial data created.\nTo produce spatial data analyze a FR version')
+        
+def convert_shapes_to_csv(workspace):
+    
+    # Convert any geopackage in the root level of output_mapping_dir to CSV and rename.
+    shape_list = glob.glob(os.path.join(workspace, '*.shp'))
+    for shape in shape_list:
+        gdf = gpd.read_file(shape)
+        parent_directory = os.path.split(shape)[0]
+        file_name = shape.replace('.shp', '.csv')
+        csv_output_path = os.path.join(parent_directory, file_name)
+        gdf.to_csv(csv_output_path)
+    
+        
 #######################################################################
 if __name__ == '__main__':
     # Parse arguments
@@ -676,7 +696,7 @@ if __name__ == '__main__':
     parser.add_argument('-m','--metrics_csv', help = 'Metrics csv created from synthesize test cases.', required = True)
     parser.add_argument('-w', '--workspace', help = 'Output workspace', required = True)
     parser.add_argument('-v', '--versions', help = 'List of versions to be plotted/aggregated. Versions are filtered using the "startswith" approach. For example, ["fim_","fb1"] would retain all versions that began with "fim_" (e.g. fim_1..., fim_2..., fim_3...) as well as any feature branch that began with "fb". An other example ["fim_3","fb"] would result in all fim_3 versions being plotted along with the fb.', nargs = '+', default = [])
-    parser.add_argument('-s', '--stats', help = 'List of statistics (abbrev to 3 letters) to be plotted/aggregated', nargs = '+', default = ['CSI','TPR','FAR','PND'], required = False)
+    parser.add_argument('-s', '--stats', help = 'List of statistics (abbrev to 3 letters) to be plotted/aggregated', nargs = '+', default = ['CSI','TPR','FAR','PND','MCC','EQUITABLE_THREAT_SCORE'], required = False)
     parser.add_argument('-sp', '--spatial', help = 'If enabled, creates spatial layers with metrics populated in attribute table.', action = 'store_true', required = False)
     parser.add_argument('-f', '--fim_1_ms', help = 'If enabled fim_1 rows will be duplicated and extent config assigned "ms" so that fim_1 can be shown on mainstems plots/stats', action = 'store_true', required = False)
     parser.add_argument('-i', '--site_plots', help = 'If enabled individual barplots for each site are created.', action = 'store_true', required = False)
@@ -697,3 +717,7 @@ if __name__ == '__main__':
     print('The following AHPS sites are considered "BAD_SITES":  ' + ', '.join(BAD_SITES))
     print('The following query is used to filter AHPS:  ' + DISCARD_AHPS_QUERY)
     eval_plots(metrics_csv = m, workspace = w, versions = v, stats = s, spatial = sp, fim_1_ms = f, site_barplots = i)
+    
+    # Convert output shapefiles to CSV
+    print("Converting to CSVs...")
+    convert_shapes_to_csv(w)

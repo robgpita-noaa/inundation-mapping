@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 
-from logging import exception
+
 import os
 import argparse
-from glob import glob
 import string
+import pathlib
+from glob import glob
+from logging import exception
 
 def __read_included_files(parent_dir_path):
 
@@ -25,6 +27,12 @@ def __read_input_hucs(hucs):
 
     huc_list = set()
     if os.path.isfile(hucs[0]):
+        
+        source_file_extension = pathlib.Path(hucs[0]).suffix   
+       
+        if (source_file_extension.lower() != ".lst" ):
+            raise Exception("Incoming file must be in .lst format if submitting a file name and path.")
+        
         with open(hucs[0],'r') as hucs_file:
             file_lines = hucs_file.readlines()
             f_list = [__clean_huc_value(fl) for fl in file_lines]
@@ -56,12 +64,13 @@ def __check_for_membership(hucs,accepted_hucs_set):
             raise KeyError(msg)
         
         if huc not in accepted_hucs_set:
-            raise KeyError("HUC {} not found in available inputs. Edit HUC inputs or acquire datasets and try again".format(huc))
+            msg = f"HUC {huc} not found in available inputs. Edit HUC inputs or acquire datasets and try again."
+            raise KeyError(msg)
 
 
-def check_hucs(hucs):
+def check_hucs(hucs, inputsDir):
     
-    huc_list_path = os.path.join(os.environ['inputDataDir'],'huc_lists')
+    huc_list_path = os.path.join(inputsDir, 'huc_lists')
     accepted_hucs = __read_included_files(huc_list_path)
     list_hucs = __read_input_hucs(hucs)
     __check_for_membership(list_hucs, accepted_hucs)
@@ -79,6 +88,7 @@ if __name__ == '__main__':
     # parse arguments
     parser = argparse.ArgumentParser(description='Checks input hucs for availability within inputs')
     parser.add_argument('-u','--hucs',help='Line-delimited file or list of HUCs to check availibility for',required=True, nargs='+')
+    parser.add_argument('-i', '--inputsDir', help='Inputs directory', required=True)
 
     # extract to dictionary
     args = vars(parser.parse_args())
