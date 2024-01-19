@@ -5,9 +5,7 @@ Acquires US Census TIGERweb data and converts city names to HUCs list.
 
 Command Used:
 
-dir=/data/misc/lidar
-
-dir=/data/misc/lidar_PI1/ngwpc_PI1_lidar /foss_fim/tools/convert_city_names_to_huc8s.py -s UA_C -c $dir/ngwpc_PI1_lidar_urban_areas_curated.lst -f NAME20 -b $dir/ngwpc_PI1_lidar_hucs.gpkg -a $dir/ngwpc_PI1_lidar_add_hucs.lst -d $dir/ngwpc_PI1_lidar_drop_hucs.lst -hw $dir/inputs/huc_lists/ngwpc_PI1_lidar_hucs.lst
+dir=/data/misc/lidar; /foss_fim/tools/convert_city_names_to_huc8s.py -s UA_C -c $dir/ngwpc_PI1_lidar_urban_areas_curated.lst -f NAME20 -b $dir/ngwpc_PI1_lidar_hucs.gpkg -a $dir/ngwpc_PI1_lidar_add_hucs.lst -d $dir/ngwpc_PI1_lidar_drop_hucs.lst -hw /data/inputs/huc_lists/ngwpc_PI1_lidar_hucs.lst
 """
 from __future__ import annotations
 
@@ -22,7 +20,7 @@ import json
 import os
 import re
 
-from foss_fim.src.utils.shared_variables import PREP_CRS
+from utils.shared_variables import DEFAULT_FIM_PROJECTION_CRS
 from acquire_tigerweb_data import Acquire_tigerweb_data
 
 INPUT_DIR = os.environ.get('inputsDir')
@@ -38,7 +36,7 @@ def Acquire_city_boundaries_and_convert_city_names_to_HUCs(
     wbd : str | Path | gpd.GeoDataFrame = WBD_FILE_PATH,
     huc_level : int | str = 8,
     year : str = "2020",
-    target_crs : str | int | CRS = PREP_CRS,
+    target_crs : str | int | CRS = DEFAULT_FIM_PROJECTION_CRS,
     city_name_field : str = "NAME",
     predicate : str = "intersects",
     additional_hucs : Iterable[str] | str | Path = None,
@@ -64,7 +62,7 @@ def Acquire_city_boundaries_and_convert_city_names_to_HUCs(
         The HUC level to use. Options are 8.
     year : str, default = "2020"
         The year of the data. See `acquire_tigerweb_data.py` for more information.
-    target_crs : str or int or CRS, default = foss_fim.src.utils.shared_variables.PREP_CRS
+    target_crs : str or int or CRS, default = utils.shared_variables.DEFAULT_FIM_PROJECTION_CRS
         The target coordinate reference system. Set to None to not reproject the data. See `acquire_tigerweb_data.py` for more information.
     city_name_field : str, default = "NAME"
         The name of the field in GeoDataFrame that contains the city names.
@@ -247,7 +245,7 @@ if __name__ == "__main__":
         "-t",
         type=str,
         required=False,
-        default=PREP_CRS,
+        default=DEFAULT_FIM_PROJECTION_CRS,
         help="The target coordinate reference system. Exclude to not reproject the data."
     )
 

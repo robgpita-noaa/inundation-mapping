@@ -16,13 +16,13 @@ import argparse
 import geopandas as gpd
 import json
 
-from foss_fim.src.utils.shared_variables import PREP_CRS
+from utils.shared_variables import DEFAULT_FIM_PROJECTION_CRS
 
 
 def Acquire_tigerweb_data(
     source : str,
     year : str = "2020",
-    target_crs : str | int | CRS = PREP_CRS,
+    target_crs : str | int | CRS = DEFAULT_FIM_PROJECTION_CRS,
     write_path: str | Path = None,
     write_kwargs: dict = None
 ) -> gpd.GeoDataFrame:
@@ -44,7 +44,7 @@ def Acquire_tigerweb_data(
         Please see refrerences for more information.
     year : str, default = "2020"
         The year of the data.
-    target_crs : str or int or CRS, default = foss_fim.src.utils.shared_variables.PREP_CRS
+    target_crs : str or int or CRS, default = foss_fim.src.utils.shared_variables.from utils.shared_variables import DEFAULT_FIM_PROJECTION_CRS
         The target coordinate reference system. Use None to not reproject the data.
     write_path : str or Path, default = None
         The path to write the data to. Set to None to not write the data.
@@ -129,7 +129,7 @@ if __name__ == "__main__":
         "-t",
         type=str,
         required=False,
-        default=PREP_CRS,
+        default=DEFAULT_FIM_PROJECTION_CRS,
         help="The target coordinate reference system. Exclude to not reproject the data."
     )
 
