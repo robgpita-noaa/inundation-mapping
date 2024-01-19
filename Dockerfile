@@ -91,6 +91,12 @@ COPY Pipfile .
 COPY Pipfile.lock .
 RUN pip3 install pipenv==2022.4.8 && PIP_NO_CACHE_DIR=off pipenv install --system --deploy --ignore-pipfile
 
+## HOW TO UPDATE PIPFILE AND PIPFILE.LOCK ##
+# To update packages, run this within an active container assuming /foss_fim is mounted with the source code:
+    # (cd /foss_fim; PIP_NO_CACHE_DIR=off pipenv install --system --skip-lock)
+    # (cd /foss_fim; pipenv lock --clear)
+# then rebuild the image
+
 # ----------------------------------
 # Mar 2023
 # There are some nuances in the whitebox python downloads in that the first time it loads

@@ -44,6 +44,8 @@ pre-commit = "==3.3.3"
 isort = "==5.12.0"
 urllib3 = "==1.26.18"
 pyflwdir = "*"
+py3dep = "==0.16.1"
+odc-geo = "==0.4.1"
 
 [requires]
 python_version = "3.10"
