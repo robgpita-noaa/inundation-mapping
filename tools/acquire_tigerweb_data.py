@@ -28,6 +28,8 @@ def Acquire_tigerweb_data(
 ) -> gpd.GeoDataFrame:
     """
     Acquires US Census TIGERweb data.
+    
+    Specifically, the Core Based Statistical Areas (CBSA), Combined Statistical Areas (CSA), Metropolitan Divisions (MD), and Urban Areas - Corrected (UA_C).
 
     Parameters
     ----------

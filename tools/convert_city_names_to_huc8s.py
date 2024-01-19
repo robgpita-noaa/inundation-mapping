@@ -11,7 +11,7 @@ dir=/data/misc/lidar_PI1/ngwpc_PI1_lidar /foss_fim/tools/convert_city_names_to_h
 """
 from __future__ import annotations
 
-from typing import Iterable
+from typing import Iterable, Tuple
 from pathlib import Path
 from pyproj import CRS
 
@@ -46,9 +46,11 @@ def Acquire_city_boundaries_and_convert_city_names_to_HUCs(
     wbd_write_path : str | Path = None,
     wbd_write_kwargs : dict = None,
     huc_list_write_path : str | Path = HUC_LIST
-) -> gpd.GeoDataFrame:
+) -> Tuple[gpd.GeoDataFrame, list]:
     """
     Acquires US Census TIGERweb data and converts city names to HUCs list.
+    
+    Returns a GeoDataFrame of the WBDs and a list of HUCs. Also, optionally writes the WBDs and HUC list to file.
 
     Parameters
     ----------
@@ -83,6 +85,8 @@ def Acquire_city_boundaries_and_convert_city_names_to_HUCs(
     -------
     gpd.GeoDataFrame
         The GeoDataFrame of the matched cities and their HUCs.
+    list
+        The list of HUCs.
 
     Raises
     ------
@@ -115,7 +119,7 @@ def Acquire_city_boundaries_and_convert_city_names_to_HUCs(
     # get the HUC level layer name
     layer_name = f"WBDHU{huc_level}"
                 
-    # get the HUCs
+    # get the wbd data
     if isinstance(wbd, str) or isinstance(wbd, Path):
         wbd = gpd.read_file(wbd, layer=layer_name)
     elif isinstance(wbd, gpd.GeoDataFrame):
@@ -123,9 +127,7 @@ def Acquire_city_boundaries_and_convert_city_names_to_HUCs(
     else:
         raise TypeError("wbd argument must be a GeoDataFrame, str, or Path.")
 
-    #wbd_bool = wbd.apply(lambda x,cb: x.geometry.intersects(cb.geometry), axis=1, cb=census_boundaries).any(axis=1)
-    #wbd_subset = wbd[wbd_bool]
-
+    # get the HUC field name
     huc_field_name = f"HUC{huc_level}"
 
     # use spatial join to create huc list
@@ -151,6 +153,7 @@ def Acquire_city_boundaries_and_convert_city_names_to_HUCs(
             else:
                 additional_hucs = additional_hucs
 
+        # append the additional HUCs to wbd_subset
         huc_list += additional_hucs
         huc_list = list(set(huc_list))
 
@@ -167,6 +170,7 @@ def Acquire_city_boundaries_and_convert_city_names_to_HUCs(
             else:
                 drop_hucs = drop_hucs
 
+        # remove the drop HUCs from wbd_subset
         huc_list = list(set(huc_list) - set(drop_hucs))
 
     # remove duplicated HUCs
