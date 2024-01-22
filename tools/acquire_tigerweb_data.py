@@ -13,8 +13,9 @@ import urllib
 import os
 import zipfile
 import argparse
-import geopandas as gpd
 import json
+
+import geopandas as gpd
 
 from utils.shared_variables import DEFAULT_FIM_PROJECTION_CRS
 
