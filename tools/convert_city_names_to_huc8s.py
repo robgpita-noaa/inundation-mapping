@@ -39,11 +39,11 @@ def Acquire_city_boundaries_and_convert_city_names_to_HUCs(
     target_crs : str | int | CRS = DEFAULT_FIM_PROJECTION_CRS,
     city_name_field : str = "NAME",
     predicate : str = "intersects",
-    additional_hucs : Iterable[str] | str | Path = None,
-    drop_hucs : Iterable[str] | str | Path = None,
-    wbd_write_path : str | Path = None,
-    wbd_write_kwargs : dict = None,
-    huc_list_write_path : str | Path = HUC_LIST
+    additional_hucs : Iterable[str] | str | Path | None = None,
+    drop_hucs : Iterable[str] | str | Path | None = None,
+    wbd_write_path : str | Path | None = None,
+    wbd_write_kwargs : dict | None = None,
+    huc_list_write_path : str | Path | None = HUC_LIST
 ) -> Tuple[gpd.GeoDataFrame, list]:
     """
     Acquires US Census TIGERweb data and converts city names to HUCs list.
@@ -70,13 +70,13 @@ def Acquire_city_boundaries_and_convert_city_names_to_HUCs(
         The spatial predicate to use to get the geometry of the city. Options are in geopandas.sindex.valid_query_predicates and listed here as 'overlaps', 'covers', 'covered_by', 'contains_properly', 'touches', 'intersects', 'contains', 'crosses', None, and 'within'.
     additional_hucs : Iterable of str or str or Path, default = None
         The additional HUCs to add to the HUC list. Can be an iterable of HUC names, a path to a line-deliminted text file with HUC names, or a single HUC name.
-    drop_hucs : Iterable of str or str or Path, default = None
+    drop_hucs : Iterable of str or str or Path or None, default = None
         The HUCs to drop from the HUC list. Can be an iterable of HUC names, a path to a line-deliminted text file with HUC names, or a single HUC name.
-    wbd_write_path : str or Path, default = None
+    wbd_write_path : str or Path or None, default = None
         The path to write the WBD data to. Set to None to not write the data.
-    wbd_write_kwargs : dict, default = None
+    wbd_write_kwargs : dict or None, default = None
         Keyword arguments to pass to GeoDataFrame.to_file(). Only used if write_path is not None.
-    huc_list_write_path : str or Path, default = HUC_LIST
+    huc_list_write_path : str or Path or None, default = HUC_LIST
         The path to write the HUC8 list to.
         
     Returns
@@ -139,7 +139,7 @@ def Acquire_city_boundaries_and_convert_city_names_to_HUCs(
     )
 
     # append the additional HUCs to wbd_subset
-    if additional_hucs is not None:
+    if additional_hucs:
         try:
             # reads the file successfully if additional_hucs is a str or Path
             additional_hucs = pd.read_fwf(
@@ -156,7 +156,7 @@ def Acquire_city_boundaries_and_convert_city_names_to_HUCs(
         huc_list = list(set(huc_list))
 
     # remove the drop HUCs from wbd_subset
-    if drop_hucs is not None:
+    if drop_hucs:
         try:
             # reads the file successfully if drop_hucs is a str or Path
             drop_hucs = pd.read_fwf(
@@ -179,13 +179,13 @@ def Acquire_city_boundaries_and_convert_city_names_to_HUCs(
     )
 
     # write wbd_subset to file
-    if wbd_write_path is not None:
+    if wbd_write_path:
         if wbd_write_kwargs is None:
             wbd_write_kwargs = {}
         wbd_subset.to_file(wbd_write_path, **wbd_write_kwargs)
     
     # write huc_list to file
-    if huc_list_write_path is not None:
+    if huc_list_write_path:
         pd.Series(huc_list).to_csv(huc_list_write_path, sep='\n', header=False, index=False)
 
     return wbd_subset, huc_list
