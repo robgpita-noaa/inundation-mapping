@@ -41,6 +41,7 @@ import rioxarray as rxr
 import odc.geo.xr
 from dotenv import load_dotenv
 from dask.distributed import Client, as_completed, get_client
+from tqdm import tqdm
 
 
 from utils.shared_variables import elev_raster_ndv as ELEV_RASTER_NDV
@@ -59,12 +60,6 @@ WBD_BUFFER = 5000 # should match buffer size in config file. in CRS horizontal u
 WBD_SIZE = 8 # huc size
 WBD_FILE = os.path.join(inputsDir, 'wbd', 'WBD_National_EPSG_5070.gpkg') # env file????
 
-# TODO: move to shared file
-# USGS 3DEP 10m VRT URL
-__USGS_3DEP_10M_VRT_URL = (
-    r'/vsicurl/https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/13/TIFF/USGS_Seamless_DEM_13.vrt'
-)
-
 # computational and process variables
 MAX_PIXELS_3DEP = py3dep.py3dep.MAX_PIXELS # maximum number of pixels available in 3dep service
 MAX_RETRIES = 5 # number of retries for 3dep acquisition
@@ -76,8 +71,8 @@ WRITE_KWARGS = {
     'windowed' : True,
     'compute' : True,
     'overwrite' : True,
-    'blockxsize' : 256,
-    'blockysize' : 256,
+    'blockxsize' : 128,
+    'blockysize' : 128,
     'tiled' : True,
     'compress' : 'lzw',
     'BIGTIFF' : 'IF_SAFER',
@@ -92,29 +87,8 @@ WRITE_KWARGS = {
 
 # HyRiver caching variables
 # see https://docs.hyriver.io/readme/async-retriever.html
+os.environ["HYRIVER_CACHE_DISABLE"] = "true" # disable cache
 
-# disable cache
-os.environ["HYRIVER_CACHE_DISABLE"] = "true"
-
-# cache is disabled so these are not used and are PLACEHOLDERS
-# path to cache file
-os.environ["HYRIVER_CACHE_NAME"] = os.path.join(projectDir, "cache", "hyriver_aiohttp_cache.sqlite")
-# time that a cache entry is valid
-os.environ["HYRIVER_CACHE_EXPIRE"] = "3600" # seconds
-
-
-class IdentifierGenerator:
-    """
-    Generates globally unique identifiers for tiles.
-    """
-    def __init__(self, counter=1, digits=8):
-        self.counter = counter
-        self.digits = digits
-
-    def get_next_identifier(self):
-        identifier = f"{self.counter:0{self.digits}d}"
-        self.counter += 1
-        return identifier
     
 def tile_geometry(
     geometry: Polygon | MultiPolygon, max_tile_size: Number, tile_buffer: Number
@@ -199,7 +173,6 @@ def Acquired_and_process_lidar_dems(
     wbd_buffer : Number = WBD_BUFFER,
     pixel_buffer : int = 2,
     retry : bool = False,
-    dem_vrt : str | Path = __USGS_3DEP_10M_VRT_URL,
     client : dask.distributed.Client | None = None,
     overwrite_check : bool = False
 ) -> Path:
@@ -227,9 +200,9 @@ def Acquired_and_process_lidar_dems(
     os.makedirs(dem_3dep_dir, exist_ok=True)
 
     # dask client
-    if client is None:
-        local_client = True
-        client = Client(n_workers=num_workers, threads_per_worker=1)
+    #if client is None:
+        #local_client = True
+        #client = Client(n_workers=num_workers, threads_per_worker=1)
 
     # prepare huc_set
     if huc_list is not None:
@@ -261,14 +234,6 @@ def Acquired_and_process_lidar_dems(
     
     # get wbd crs: extra logic for fiona collection possibly due to old fiona version
     wbd_crs = CRS(wbd.crs['init']) if isinstance(wbd.crs, dict) & ('init' in wbd.crs) else CRS(wbd.crs)
-
-    # load 3dep vrt
-    dem_vrt = rxr.open_rasterio(dem_vrt)
-    dem_vrt_crs = CRS(dem_vrt.rio.crs)
-
-    # confirm matching CRS
-    if wbd_crs.is_exact_same(dem_vrt_crs):
-        raise ValueError('WBD and 3DEP DEM VRT must have the same CRS')
 
     # given maximum number of pixels available in 3dep service and resolution. Compute tile size in meters
     # TODO: CHECK THIS LOGIC
@@ -368,8 +333,10 @@ def Acquired_and_process_lidar_dems(
         )
 
         # reset ndv to project value
-        # what is the existing ndv? assumes nan
-        # TODO: Check static DEM ndv is also nan
+        # existing ndv isclose to -3.4028234663852886e+38
+        existing_ndv = -3.4028234663852886e+38
+        dem.values[np.isclose(dem, existing_ndv)] = ndv
+
         dem.rio.write_nodata(ndv, inplace=True)
 
         # set attributes
@@ -408,28 +375,41 @@ def Acquired_and_process_lidar_dems(
         write_ext = write_ext
     )
 
+    # generate inputs and download tiles in a for loop
+    # create dem_tile_file_names list
+    tile_inputs = [generate_inputs_for_3dep_dem_acquisition_partial(w) for w in wbd]
+    tile_inputs = list(itertools.chain.from_iterable(tile_inputs))
+
+    # download tiles
+    dem_tile_file_names = []
+    for idx, huc, tile_geom in tqdm(tile_inputs, total=len(tile_inputs), desc="Downloading 3DEP DEMs by tile"):
+        fn = retrieve_process_write_single_3dep_dem_tile_partial(idx, huc, tile_geom)
+        dem_tile_file_names.append(fn)
+
+    breakpoint()
+
     # Generate input data for 3DEP acquisition and process them
-    input_futures = []
+    #input_futures = []
     #with TqdmCallback(desc="Generating inputs", leave=True):
-    for w in wbd:
-        future_w = client.scatter(w)
-        input_futures.append(client.submit(generate_inputs_for_3dep_dem_acquisition_partial, future_w))
+    #for w in wbd:
+        #future_w = client.scatter(w)
+        #input_futures.append(client.submit(generate_inputs_for_3dep_dem_acquisition_partial, future_w))
 
     # Submit tasks for processing each tile as soon as its input data is ready
-    processing_futures = []
-    for future in as_completed(input_futures):
-        tile_inputs = future.result()
-        for idx, huc, geometry in tile_inputs:
-            process_future = client.submit(retrieve_process_write_single_3dep_dem_tile_partial, idx, huc, geometry)
-            processing_futures.append(process_future)
+    #processing_futures = []
+    #for future in as_completed(input_futures):
+    #    tile_inputs = future.result()
+    #    for idx, huc, geometry in tile_inputs:
+    #        process_future = client.submit(retrieve_process_write_single_3dep_dem_tile_partial, idx, huc, geometry)
+    #        processing_futures.append(process_future)
     
-    dem_tile_file_names = []
-    for pf in as_completed(processing_futures):
-        try:
-            dem_tile_file_names.append(pf.result())
-        except:
-            print(f'Failed to process tile: {pf.result()}')
-            pass
+    #dem_tile_file_names = []
+    #for pf in as_completed(processing_futures):
+    #    try:
+    #        dem_tile_file_names.append(pf.result())
+    #    except:
+    #        print(f'Failed to process tile: {pf.result()}')
+    #        pass
 
     breakpoint()
 
@@ -450,9 +430,9 @@ def Acquired_and_process_lidar_dems(
     vrt = BuildVRT(destName=destVRT, srcDSOrSrcDSTab=dem_tile_file_names, options=opts)
     vrt = None
 
-    if local_client:
+    #if local_client:
         # close client
-        client.close()
+     #   client.close()
     
 
 
@@ -505,29 +485,3 @@ if __name__ == '__main__':
     kwargs = vars(parser.parse_args())
 
     Acquired_and_process_lidar_dems(**kwargs)
-
-
-    """
-    def get_tile_from_3DEP_VRT(
-            geometry : Polygon | MultiPolygon, dem_vrt : str | xr.DataArray
-        ) -> xr.DataArray:
-        #Retrieves a tile from the 3DEP VRT.
-
-            # open
-            if isinstance(dem_vrt, xr.DataArray):
-                pass
-            elif isinstance(dem_vrt, str):
-                dem_vrt = xr.open_rasterio(dem_vrt)
-            
-            # clipping
-            geometry = gpd.GeoSeries([geometry]).to_json()
-            
-            try:
-                # NOTE: Assumes that the 3DEP VRT is in the same CRS as the geometry????
-                dem = dem_vrt.rio.clip(geometry)
-            except ValueError:
-                print('No tiles available for 3DEP VRT')
-                return None
-            else:
-                return dem
-    """
