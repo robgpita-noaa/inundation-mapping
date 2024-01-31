@@ -5,7 +5,7 @@
 Acquires and preprocesses 3DEP DEMs for use with HAND FIM.
 
 Command Line Usage:
-    /foss_fim/data/usgs/acquire_and_preprocess_lidar_dems.py -r 30 -d /data/inputs/3dep_dems/10m_test -w /data/misc/lidar/ngwpc_PI1_lidar_hucs.gpkg -l ngwpc_PI1_lidar_hucs
+    /foss_fim/data/usgs/lidar_dems_from_service.py -t /data/misc/lidar/ngwpc_PI1_lidar_tiles_10m.gpkg -r 10 -d /data/inputs/3dep_dems/10m_5070_py3dep_refactor
 """
 
 from __future__ import annotations
@@ -22,12 +22,13 @@ from pathlib import Path
 from functools import partial
 import itertools
 
-from osgeo.gdal import BuildVRT, BuildVRTOptions
+from osgeo import gdal
 from rasterio.enums import Resampling
 from tqdm.dask import TqdmCallback
 import dask
 import numpy as np
 import pandas as pd
+import geopandas as gpd
 import py3dep
 from shapely import Polygon, MultiPolygon
 import odc.geo.xr
@@ -38,6 +39,9 @@ from tqdm import tqdm
 
 from utils.shared_variables import elev_raster_ndv as ELEV_RASTER_NDV
 
+# Enable exceptions for GDAL
+gdal.UseExceptions()
+
 # get directories from env variables
 projectDir = os.getenv('projectDir')
 srcDir = os.getenv('srcDir')
@@ -45,8 +49,6 @@ inputsDir = os.getenv('inputsDir')
 
 # load env variables
 load_dotenv(os.path.join(srcDir, 'bash_variables.env'))
-
-PREP_CRS = os.getenv('DEFAULT_FIM_PROJECTION_CRS')
 
 # WBD variables
 WBD_BUFFER = 5000 # should match buffer size in config file. in CRS horizontal units
@@ -99,31 +101,34 @@ def retrieve_process_write_single_3dep_dem_tile(
     # unpack input data
     #idx, huc, geometry = in_data
 
-    retries = 1
-    dem_source = "failed"
+    retries = 0
     while True:
         try:
             # Primary operation
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore", category=FutureWarning)
                 dem = py3dep.get_map('DEM', geometry=geometry, resolution=dem_resolution, geo_crs=crs)
-            dem_source = "dynamic"
-            acquired_datetime_utc = pd.Timestamp.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-            break
         except Exception as e:
             print(f'Dynamic DEM Failed: {e} - idx: {idx} | retries: {retries}')
             retries += 1
 
-        # If primary operation fails after max retries, try fallback option
-        if retries > MAX_RETRIES:
-            try:
-                print(f'Using Static DEM - idx: {idx} | retries: {retries}')
-                dem = py3dep.static_3dep_dem(geometry=geometry, crs=crs, resolution=10)
-                dem_source = "static"
-                acquired_datetime_utc = pd.Timestamp.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-                break
-            except Exception as e:
-                print(f'Static DEM Failed: {e} - idx: {idx}')
+            # If primary operation fails after max retries, try fallback option
+            if retries > MAX_RETRIES:
+                try:
+                    print(f'Using Static DEM - idx: {idx}')
+                    dem = py3dep.static_3dep_dem(geometry=geometry, crs=crs, resolution=10)
+                except Exception as e:
+                    print(f'Static DEM Failed: {e} - idx: {idx}')
+                    break
+                else:
+                    acquired_datetime_utc = pd.Timestamp.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+                    break
+            else:
+                continue
+        else:
+            acquired_datetime_utc = pd.Timestamp.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+            break
+
 
     # reproject and resample
     dem = dem.odc.reproject( 
@@ -157,28 +162,63 @@ def retrieve_process_write_single_3dep_dem_tile(
     return dem_file_name
 
 
-def Acquired_and_process_lidar_dems(
+def acquired_and_process_lidar_dems(
     tile_inputs_file : str | Path,
     dem_resolution : Number,
     dem_3dep_dir : str | Path,
     write_kwargs : dict = WRITE_KWARGS,
     write_ext : str = 'cog',
-    crs : str | int | CRS = PREP_CRS,
+    waive_overwrite_check : bool = False,
     ndv : Number = ELEV_RASTER_NDV,
-    num_workers : int = NUM_WORKERS,
     client : dask.distributed.Client | None = None,
-    overwrite_check : bool = False
+    num_workers : int = NUM_WORKERS
 ) -> Path:
+    """
+    Acquires and preprocesses 3DEP DEMs for use with HAND FIM.
+
+    Parameters
+    ----------
+    tile_inputs_file : str | Path
+        Path to tile inputs vector file.
+    dem_resolution : Number
+        DEM resolution in meters.
+    dem_3dep_dir : str | Path
+        Path to 3DEP DEM directory.
+    write_kwargs : dict, default = WRITE_KWARGS
+        Write kwargs.
+    write_ext : str, default = 'cog'
+        Write extension.
+    waive_overwrite_check : bool, default = False
+        Waive overwrite check.
+    ndv : Number, default = ELEV_RASTER_NDV
+        No data value.
+    client : dask.distributed.Client | None, default = None
+        Dask client.
+    num_workers : int, default = NUM_WORKERS
+        Number of workers.
+
+    Returns
+    -------
+    Path
+        Path to VRT file.
+
+    Raises
+    ------
+    ValueError
+        If client is not provided and cannot be created.
+    """
 
     # handle retry and overwrite check logic
-    if overwrite_check & os.path.exists(dem_3dep_dir):
+    if (not waive_overwrite_check) & os.path.exists(dem_3dep_dir):
         answer = input('Are you sure you want to overwrite the existing 3DEP DEMs? (yes/y/no/n): ')
-        if answer.lower() != 'y' | answer.lower() != 'yes':
+        if (answer.lower() == 'y') | (answer.lower() == 'yes'):
             # logger.info('Exiting due to not overwriting.')
             shutil.rmtree(dem_3dep_dir)
         else:
             # logger.info('Exiting due to not overwriting and not retrying.')
-            return None
+            exit()
+    elif os.path.exists(dem_3dep_dir):
+        shutil.rmtree(dem_3dep_dir)
     
     # directory location
     os.makedirs(dem_3dep_dir, exist_ok=True)
@@ -193,46 +233,45 @@ def Acquired_and_process_lidar_dems(
         else:
             local_client = False
 
+    # load tile inputs
+    tile_inputs = gpd.read_file(tile_inputs_file)
+
+    # make tile directory
+    dem_tile_dir = os.path.join(dem_3dep_dir, 'tiles')
+    os.makedirs(dem_tile_dir, exist_ok=True)
 
     # create partial function for 3dep acquisition
     retrieve_process_write_single_3dep_dem_tile_partial = partial(
         retrieve_process_write_single_3dep_dem_tile,
         dem_resolution = dem_resolution,
-        crs = crs,
+        crs = tile_inputs.crs,
         ndv = ndv,
-        dem_3dep_dir = dem_3dep_dir,
+        dem_3dep_dir = dem_tile_dir,
         write_kwargs = write_kwargs,
         write_ext = write_ext
     )
 
-    # load tile inputs
-    tile_inputs = gpd.read_file(tile_inputs_file)
-
     # download tiles
-    dem_tile_file_names = []
-    for _, (idx, huc, tile_geom) in tqdm(
-        tile_inputs.iterrows(), total=len(tile_inputs), desc="Downloading 3DEP DEMs by tile"
-    ):
-        fn = retrieve_process_write_single_3dep_dem_tile_partial(idx, huc, tile_geom)
-        dem_tile_file_names.append(fn)
+    #dem_tile_file_names = [None] * len(tile_inputs)
+    #for i, (idx, huc, tile_geom) in tqdm(
+    #    tile_inputs.iterrows(), total=len(tile_inputs), desc="Downloading 3DEP DEMs by tile"
+    #):
+        #dem_tile_file_names[i] =  retrieve_process_write_single_3dep_dem_tile_partial(idx, huc, tile_geom)
 
-    # Submit tasks for processing each tile as soon as its input data is ready
-    #processing_futures = []
-    #for future in as_completed(input_futures):
-    #    tile_inputs = future.result()
-    #    for idx, huc, geometry in tile_inputs:
-    #        process_future = client.submit(retrieve_process_write_single_3dep_dem_tile_partial, idx, huc, geometry)
-    #        processing_futures.append(process_future)
+    # Assuming tile_inputs is your GeoDataFrame
+    tile_inputs_list = tile_inputs.itertuples(index=False, name=None)
     
-    #dem_tile_file_names = []
-    #for pf in as_completed(processing_futures):
-    #    try:
-    #        dem_tile_file_names.append(pf.result())
-    #    except:
-    #        print(f'Failed to process tile: {pf.result()}')
-    #        pass
+    # for debugging
+    #tile_inputs_list = list(tile_inputs_list)[:10]
+    
+    # submit futures
+    futures = [client.submit(retrieve_process_write_single_3dep_dem_tile_partial, *row) for row in tile_inputs_list]
 
-    breakpoint()
+    dem_tile_file_names = [None] * len(futures)
+    with tqdm(total=len(futures), desc=f"Downloading 3DEP DEMs at {dem_resolution}m") as pbar:
+        for i, future in enumerate(as_completed(futures)):
+            dem_tile_file_names[i] = future.result()  # You can use the result here if needed
+            pbar.update(1)
 
     # create vrt
     opts = gdal.BuildVRTOptions( 
@@ -249,6 +288,7 @@ def Acquired_and_process_lidar_dems(
     if os.path.exists(destVRT):
         os.remove(destVRT)
     
+    print(f"Buidling VRT: {destVRT}")
     vrt = gdal.BuildVRT(destName=destVRT, srcDSOrSrcDSTab=dem_tile_file_names, options=opts)
     vrt = None
 
@@ -266,44 +306,67 @@ if __name__ == '__main__':
 
 
     parser.add_argument(
-        '--dem_resolution',
-        '-r',
+        '-t', '--tile-inputs-file',
+        help='Path to tile inputs file',
+        type=str,
+        required=True
+    )
+
+    parser.add_argument(
+        '-r', '--dem-resolution',
+        help='DEM resolution in meters',
         type=int,
-        required=True,
-        help='The DEM resolution in horizontal units of CRS.'
+        required=True
     )
 
     parser.add_argument(
-        '--dem_3dep_dir',
-        '-d',
+        '-d', '--dem-3dep-dir',
+        help='Path to 3DEP DEM directory',
         type=str,
-        required=True,
-        help='The path to the output 3DEP DEM directory.'
+        required=True
     )
-
-    # PLACEHOLDER: other arguments
 
     parser.add_argument(
-        '--wbd',
-        '-w',
-        type=str,
-        required=False,
-        default=WBD_FILE,
-        help='The path to the WBD file.'
+        '-w', '--write-kwargs',
+        help='Write kwargs',
+        type=dict,
+        default=WRITE_KWARGS,
+        required=False
     )
-
-    # PLACEHOLDER: other arguments
 
     parser.add_argument(
-        '--wbd_layer',
-        '-l',
+        '-e', '--write-ext',
+        help='Write extension',
         type=str,
-        required=False,
-        default=None,
-        help='The WBD layer name.'
+        default='cog',
+        required=False
     )
 
+    parser.add_argument(
+        '-o', '--waive-overwrite-check',
+        help='Waive overwrite check',
+        default=False,
+        action='store_true',
+        required=False
+    )
+
+    parser.add_argument(
+        '-n', '--ndv',
+        help='NDV',
+        type=float,
+        default=ELEV_RASTER_NDV,
+        required=False
+    )
+
+    parser.add_argument(
+        '-j', '--num-workers',
+        help='Number of workers',
+        type=int,
+        default=NUM_WORKERS,
+        required=False
+    )
+    
     # Extract to dictionary and assign to variables.
     kwargs = vars(parser.parse_args())
 
-    Acquired_and_process_lidar_dems(**kwargs)
+    acquired_and_process_lidar_dems(**kwargs)

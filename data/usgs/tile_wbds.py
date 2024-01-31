@@ -5,7 +5,7 @@
 Tiles WBDs.
 
 Command Line Usage:
-    /foss_fim/data/usgs/tile_wbds.py -r 10 --write_path /data/misc/lidar/ngwpc_PI1_lidar_tiles.gpkg --wbd /data/misc/lidar/ngwpc_PI1_lidar_hucs.gpkg -l ngwpc_PI1_lidar_hucs
+    /foss_fim/data/usgs/tile_wbds.py -r <dem_resolution> --write_path /data/misc/lidar/ngwpc_PI1_lidar_tiles_<dem_resolution>m.gpkg --wbd /data/misc/lidar/ngwpc_PI1_lidar_hucs.gpkg -l ngwpc_PI1_lidar_hucs
 """
 from __future__ import annotations
 from typing import List, Set, Tuple, Generator
@@ -162,17 +162,59 @@ def tile_wbds(
     write_kwargs : dict = WRITE_KWARGS,
     client : Client | None = None,
     num_workers : int = NUM_WORKERS,
-    overwrite_check : bool = False
+    waive_overwrite_check : bool = False
 ) -> gpd.GeoDataFrame:
+    """
+    Tiles WBDs in preparation for 3DEP DEM acquisition. Writes the tiled WBDs to a file if write_path is not None.
+
+    Parameters
+    ----------
+    dem_resolution : Number
+        The DEM resolution in horizontal units of CRS.
+    wbd : str | Path | fiona.Collection, default = WBD_FILE
+        The path to the WBD file or the WBD file itself.
+    wbd_size : str | int, default = WBD_SIZE
+        The size of the WBD. Options are 2, 4, 6, 8, 10, 12.
+    wbd_layer : str | None, default = None
+        The layer of the WBD.
+    wbd_buffer : Number, default = WBD_BUFFER
+        The buffer size of the WBD in CRS horizontal units.
+    pixel_buffer : int, default = 2
+        The buffer size in pixels.
+    write_path : str | Path | None, default = None
+        The path to write the data to.
+    write_kwargs : dict, default = WRITE_KWARGS
+        The write kwargs.
+    client : Client | None, default = None
+        The dask client.
+    num_workers : int, default = NUM_WORKERS
+        The number of workers.
+    waive_overwrite_check : bool, default = False
+        Waive overwrite check user input.
+
+    Returns
+    -------
+    gpd.GeoDataFrame
+        The tiled WBDs.
+
+    Raises
+    ------
+    TypeError
+        If wbd is not a string, Path, or fiona.Collection.
+    """
 
     # handle retry and overwrite check logic
-    if overwrite_check & (write_path is not None):
+    if (not waive_overwrite_check) & (write_path is not None):
         if os.path.exists(write_path):
             answer = input('Are you sure you want to overwrite the existing 3DEP DEM tiles? (yes/y/no/n): ')
-            if answer.lower() != 'y' | answer.lower() != 'yes':
-                shutil.rmtree(write_path)
+            if (answer.lower() == 'y') | (answer.lower() == 'yes'):
+                os.remove(write_path)
             else:
-                return None
+                exit()
+    elif write_path is not None:
+        if os.path.exists(write_path):
+            os.remove(write_path)
+
 
     # get dask client
     if client is None:
@@ -219,25 +261,24 @@ def tile_wbds(
     # generate inputs and download tiles in a for loop
     # create dem_tile_file_names list
     results = [generate_inputs_for_3dep_dem_acquisition_partial(w) for w in wbd]
-    results = list(itertools.chain.from_iterable(results))
 
     # PLACEHOLDER
-    if True:
+    if False:
+        results = list(itertools.chain.from_iterable(results))
+
         # Generate input data for 3DEP acquisition and process them
         futures = []
         for w in wbd:
             future_w = client.scatter(w)
             futures.append(client.submit(generate_inputs_for_3dep_dem_acquisition_partial, future_w))
 
-        results = []
-        with tqdm(total=len(futures), desc="Downloading 3DEP DEMs by tile") as pbar:
-            for f in as_completed(futures):
-                results.append(f.result())
+        results = [None] * len(futures)
+        with tqdm(total=len(futures), desc="Tiling WBDs") as pbar:
+            for i, f in enmumerate(as_completed(futures)):
+                results[i] = f.result()
                 pbar.update(1)
     
-        # Get results
-        results = client.gather(futures)
-        #breakpoint()
+        breakpoint()
 
     # generate geodataframe
     results = gpd.GeoDataFrame(
@@ -294,7 +335,8 @@ if __name__ == '__main__':
         type=int,
         required=False,
         default=WBD_SIZE,
-        help='The size of the WBD.'
+        help='The size of the WBD. Options are 2, 4, 6, 8, 10, 12.',
+        choices=[2, 4, 6, 8, 10, 12]
     )
 
     parser.add_argument(
@@ -303,7 +345,7 @@ if __name__ == '__main__':
         type=str,
         required=False,
         default=None,
-        help='The layer of the WBD.'
+        help='The layer name of the WBD.'
     )
 
     parser.add_argument(
@@ -351,10 +393,11 @@ if __name__ == '__main__':
     )
 
     parser.add_argument(
-        '--overwrite_check',
+        '--waive_overwrite_check',
         '-o',
         action='store_true',
         required=False,
+        default=False,
         help='The overwrite check.'
     )
     # Extract to dictionary and assign to variables.
