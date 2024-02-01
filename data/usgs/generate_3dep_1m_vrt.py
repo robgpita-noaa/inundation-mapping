@@ -18,6 +18,11 @@ from bs4 import BeautifulSoup
 from tqdm import tqdm
 from osgeo import gdal
 from dotenv import load_dotenv
+import geopandas as gpd
+import rioxarray as rxr
+from shapely.geometry import box
+from shapely.ops import transform
+import pyproj
 # TODO: from aiohttp_client_cache import CachedSession, SQLiteBackend
 
 logger = logging.getLogger()
@@ -53,107 +58,14 @@ inputsDir = os.getenv('inputsDir')
 srcDir = os.getenv('srcDir')
 load_dotenv(os.path.join(srcDir, 'bash_variables.env'))
 
+WBD_BUFFER = 5000 # should match buffer size in config file. in CRS horizontal units
+WBD_SIZE = 8 # huc size
+WBD_FILE = os.path.join(inputsDir, 'wbd', 'WBD_National_EPSG_5070.gpkg') # env file????
+
+
 DEST_VRT = os.path.join(inputsDir, '3dep_dems', '1m_5070_VRTs', 'tiles_only_3dep_1m_5070.vrt')
 
-def retry_request(url : str, max_retries : int = 5, sleep_time : int = 3) -> requests.Response:
-    for i in range(max_retries):
-        try:
-            # TODO: cache with aiohttp
-            #async with CachedSession(cache=SQLiteBackend('demo_cache')) as session:
-                #await session.get(url)
-            response = requests.get(url)
-            if response.status_code != 200:
-                print(f"Failed : '{url}'")
-                time.sleep(sleep_time)
-                continue
-            return response
-        
-        except requests.exceptions.ConnectionError:
-            print(f"Failed : '{url}'")
-            time.sleep(sleep_time)
-            continue
 
-    if i == (max_retries - 1):
-        raise requests.exceptions.ConnectionError(f"Failed to connect to '{url}' after {max_retries} retries")
-    elif response.status_code != 200:
-        raise requests.exceptions.ConnectionError(
-            f"Failed to connect to '{url}' with status code {response.status_code}"
-        )
-
-def get_folder_urls(base_url : str) -> List[str]:
-    """
-    Fetch all folder URLs from the base URL
-    """
-    response = retry_request(base_url)
-
-    soup = BeautifulSoup(response.content, 'html.parser')
-    links = soup.find_all('a')
-
-    folder_urls = []
-    for link in links:
-        href = link.get('href')
-        if href and '/' in href and not href.startswith('/'):
-            folder_url = base_url + href
-            folder_urls.append(folder_url)
-
-    return folder_urls
-
-def get_tile_urls(base_url : str, folder_urls : List[str]) -> List[str]:
-    """
-    Fetch all .tif file URLs from the TIFF folders in the given folder URLs
-    """
-
-    tile_urls = []
-
-    for folder_url in tqdm(folder_urls, desc="Fetching 3DEP tile URLs by project"):
-        # Fetch the content of each folder
-        response = retry_request(folder_url)
-
-        soup = BeautifulSoup(response.content, 'html.parser')
-        links = soup.find_all('a')
-
-        # Check if TIFF folder exists
-        tiff_folder_link = next((link for link in links if 'TIFF' in link.get('href', '')), None)
-        if not tiff_folder_link:
-            print(f"No TIFF folder found in {folder_url}")
-            continue
-
-        # Fetch the content of the TIFF folder
-        tiff_folder_url = folder_url + tiff_folder_link.get('href')
-        response = retry_request(tiff_folder_url)
-
-        soup = BeautifulSoup(response.content, 'html.parser')
-        links = soup.find_all('a')
-
-        # List all .tif files
-        for link in links:
-            href = link.get('href')
-            if href and href.endswith('.tif'):
-                tiff_file_url = '/vsicurl/' + tiff_folder_url + href
-                tile_urls.append(tiff_file_url)
-
-    return tile_urls
-
-def get_3dep_tile_list(base_url : str = BASE_URL, destVRT : str = DEST_VRT) -> List[str]:
-    """
-    Fetch all 3DEP 1m DEM tile URLs and write them to a line-delimited text file
-    """
-
-    folder_urls = get_folder_urls(base_url)
-    tile_urls = get_tile_urls(base_url, folder_urls)
-
-    dest_dir = os.path.dirname(destVRT)
-
-    os.makedirs(dest_dir, exist_ok=True)
-
-    # write tile_urls to line-delimited text file
-    tile_urls_file = os.path.join(dest_dir, '3dep_file_urls.lst')
-    with open(tile_urls_file, 'w') as f:
-        for url in tile_urls:
-            f.write(url + '\n')
-        print(f"Wrote {len(tile_urls)} tile URLs to {tile_urls_file}")
-
-    return tile_urls
 
 def build_3dep_vrt(tile_urls : List[str], destVRT : str = DEST_VRT) -> gdal.Dataset:
     """
@@ -183,58 +95,31 @@ def build_3dep_vrt(tile_urls : List[str], destVRT : str = DEST_VRT) -> gdal.Data
 
     return vrt
 
-def reproject_3dep_vrt(src_file : str, destVRT : str) -> None:
-    """
-    Reproject the 3DEP 1m DEM VRT to EPSG:5070
-    """
-    # command to project vrt
-    # gdalwarp -f VRT -t_srs EPSG:5070 -tr 1 1 -r bilinear -overwrite -co "BLOCKXSIZE=128" -co "BLOCKYSIZE=128" 3dep_1m_5070.vrt 3dep_1m_5070_proj.vrt
 
-    # used gdal bindings to project vrt
-    src_ds = gdal.Open(src_file)
+def request_and_prepare_3dep_tile(tile_urls : str | List, wbd : gpd.GeoDataFrame, dest_dir : str) -> str:
 
-    # remove existing vrt
-    if os.path.exists(destVRT):
-        os.remove(destVRT)
+    if isinstance(tile_urls, str):
+        with open(os.path.join(os.path.dirname(dest_vrt), '3dep_file_urls.lst'), 'r') as f:
+            tile_urls = f.read().splitlines()
 
-    opts = gdal.WarpOptions(
-        format='VRT',
-        creationOptions=['BLOCKXSIZE=128', 'BLOCKYSIZE=128'],
-        dstSRS='EPSG:5070',
-        xRes=1,
-        yRes=1,
-        resampleAlg=gdal.GRA_Bilinear,
-        #callback=gdal.TermProgress_nocb,
-        multithread="True",
-        outputType=gdal.GDT_Float32,
-        dstNodata=-999999,
-        warpOptions=['NUM_THREADS=ALL_CPUS']
-    )
+    dest_dir_tiles = os.path.join(dest_dir, 'tiles')
+    os.makedirs(dest_dir_tiles, exist_ok=True)
 
-    dst_ds = gdal.Warp(
-        destVRT,
-        src_ds,
-        options=opts,
-    )
-
-    src_ds = None
-
-def main(dest_vrt: str = DEST_VRT):
-    #tile_urls = get_3dep_tile_list(destVRT=dest_vrt)
-
-    with open(os.path.join(os.path.dirname(dest_vrt), '3dep_file_urls.lst'), 'r') as f:
-        tile_urls = f.read().splitlines()
-    
     tile_vrts = []
     for tl in tqdm(tile_urls, desc="Reprojecting 3DEP tiles to EPSG:5070"):
         
         basename = os.path.basename(tl)
-        dest_dir = os.path.dirname(dest_vrt)
-        dest_dir_tiles = os.path.join(dest_dir, 'tiles')
-        
-        os.makedirs(dest_dir_tiles, exist_ok=True)
 
         dest_tile_vrt = os.path.join(dest_dir_tiles, basename)
+
+
+
+
+
+def main(dest_vrt: str = DEST_VRT):
+    #tile_urls = get_3dep_tile_list(destVRT=dest_vrt)
+
+    wbd = gpd.read_file(WBD_FILE)
         
         dest_tile_vrt = os.path.join(dest_dir_tiles, os.path.splitext(dest_tile_vrt)[0] + '.vrt')
         
