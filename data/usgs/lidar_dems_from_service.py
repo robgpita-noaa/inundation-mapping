@@ -5,7 +5,7 @@
 Acquires and preprocesses 3DEP DEMs for use with HAND FIM.
 
 Command Line Usage:
-    r=<dem_resolution>; /foss_fim/data/usgs/lidar_dems_from_service.py -r ${r} -t /data/misc/lidar/ngwpc_PI1_lidar_tiles_${r}m.gpkg -d /data/inputs/3dep_dems/${r}m_5070_py3dep -o
+    r=<dem_resolution>; /foss_fim/data/usgs/lidar_dems_from_service.py -r ${r} -t /data/misc/lidar/ngwpc_PI1_lidar_tiles_${r}m.gpkg -d /data/inputs/3dep_dems/${r}m_5070_lidar_wms -o
 """
 
 from __future__ import annotations
@@ -29,7 +29,6 @@ import numpy as np
 import pandas as pd
 import geopandas as gpd
 import py3dep
-from shapely import Polygon, MultiPolygon, box
 import odc.geo.xr
 from dotenv import load_dotenv
 from dask.distributed import Client, as_completed, get_client
@@ -58,7 +57,7 @@ WBD_FILE = os.path.join(inputsDir, 'wbd', 'WBD_National_EPSG_5070.gpkg') # env f
 DEFAULT_FIM_PROJECTION_CRS = os.getenv('DEFAULT_FIM_PROJECTION_CRS')
 
 # computational and process variables
-MAX_RETRIES = 10 # number of retries for 3dep acquisition
+MAX_RETRIES = 25 # number of retries for 3dep acquisition
 NUM_WORKERS = os.cpu_count() - 1 # number of workers for dask client
 DEFAULT_SLEEP_TIME = 0 # default sleep time in seconds for retries
 
@@ -90,12 +89,12 @@ def retrieve_process_write_single_3dep_dem_tile(
     geometry : Polygon | MultiPolygon,
     dem_resolution : Number,
     crs : str | CRS,
-    target_crs : str | CRS,
     ndv : Number,
     dem_3dep_dir : str,
     write_kwargs : dict,
     write_ext : str,
-    sleep_time : int
+    sleep_time : int,
+    max_retries : int
 ) -> str:
     """
     Retrieves and processes a single 3DEP DEM tile.
@@ -113,7 +112,7 @@ def retrieve_process_write_single_3dep_dem_tile(
             print(f'Dynamic DEM Failed: {e} - idx: {idx} | retries: {retries}')
 
             # If primary operation fails after max retries, try fallback option
-            if retries > MAX_RETRIES:
+            if retries > max_retries:
                 try:
                     print(f'Using Static DEM - idx: {idx}')
                     dem = py3dep.static_3dep_dem(geometry=geometry, crs=crs, resolution=10)
@@ -131,13 +130,7 @@ def retrieve_process_write_single_3dep_dem_tile(
             acquired_datetime_utc = pd.Timestamp.utcnow().strftime('%Y-%m-%d %H:%M:%S')
             break
 
-    # coverage issue
-    #geometry_box = gpd.GeoSeries(box(*geometry.bounds),crs=crs).to_crs(5070)
-    #dem_box = gpd.GeoSeries(box(*dem.rio.bounds()),crs=crs).to_crs(5070)
-    #print(geometry_box.bounds, dem_box.bounds)
-    #close_bounds = np.isclose(dem_box.bounds.to_numpy(), geometry_box.bounds.to_numpy(), atol=dem_resolution)
-    #close_bounds = pd.DataFrame(close_bounds, columns=['minx','miny','maxx','maxy'])
-    #print(f'Bounds are close pre-projection: {close_bounds}')
+    # raise if no data value is not NaN
     if not np.isnan(dem.rio.nodata):
         raise ValueError(f'No data value is not NaN: {dem.rio.nodata}. {idx}_{huc}')
 
@@ -145,7 +138,7 @@ def retrieve_process_write_single_3dep_dem_tile(
     dem = (
         dem
         .odc.reproject( 
-            target_crs,
+            crs,
             resolution=dem_resolution,
             resampling=Resampling.bilinear
         )
@@ -153,25 +146,6 @@ def retrieve_process_write_single_3dep_dem_tile(
         .dropna('x', how='all')
         .rio.write_nodata(ndv, inplace=True, encoded=True)
     )
-
-    # reproject and resample
-    #dem = dem.odc.reproject( 
-    #    target_crs,
-    #    resolution=dem_resolution,
-    #    resampling=Resampling.bilinear
-    #)
-
-    #dem_box = gpd.GeoSeries(box(*dem.rio.bounds()),crs=target_crs)
-    #print(geometry_box.bounds, dem_box.bounds)
-    #close_bounds = np.isclose(dem_box.bounds.to_numpy(), geometry_box.bounds.to_numpy(), atol=dem_resolution)
-    #close_bounds = pd.DataFrame(close_bounds, columns=['minx','miny','maxx','maxy'])
-    #print(f'Bounds are close post-projection: {close_bounds}')
-
-    # reset ndv to project value
-    # existing ndv isclose to -3.4028234663852886e+38
-    
-    # set nodata value
-    #dem.rio.write_nodata(ndv, inplace=True, encoded=True)
 
     # set attributes
     tile_id = f'{huc}_{idx}'
@@ -188,6 +162,9 @@ def retrieve_process_write_single_3dep_dem_tile(
         **write_kwargs
     )
 
+    # close dem
+    dem.close()
+
     return dem_file_name
 
 
@@ -202,7 +179,8 @@ def acquired_and_process_lidar_dems(
     ndv : Number = ELEV_RASTER_NDV,
     client : dask.distributed.Client | None = None,
     num_workers : int = NUM_WORKERS,
-    sleep_time : int = DEFAULT_SLEEP_TIME
+    sleep_time : int = DEFAULT_SLEEP_TIME,
+    max_retries : int = MAX_RETRIES
 ) -> Path:
     """
     Acquires and preprocesses 3DEP DEMs for use with HAND FIM.
@@ -229,6 +207,8 @@ def acquired_and_process_lidar_dems(
         Number of workers.
     sleep_time : int, default = DEFAULT_SLEEP_TIME
         Sleep time in seconds for retries.
+    max_retries : int, default = MAX_RETRIES
+        Max retries.
 
     Returns
     -------
@@ -242,16 +222,17 @@ def acquired_and_process_lidar_dems(
     """
 
     # handle retry and overwrite check logic
-    if (not waive_overwrite_check) & os.path.exists(dem_3dep_dir):
+    if waive_overwrite_check:
+        shutil.rmtree(dem_3dep_dir, ignore_errors=True)
+    else:
         answer = input('Are you sure you want to overwrite the existing 3DEP DEMs? (yes/y/no/n): ')
         if (answer.lower() == 'y') | (answer.lower() == 'yes'):
             # logger.info('Exiting due to not overwriting.')
-            shutil.rmtree(dem_3dep_dir)
+            shutil.rmtree(dem_3dep_dir, ignore_errors=True)
         else:
             # logger.info('Exiting due to not overwriting and not retrying.')
             exit()
-    elif os.path.exists(dem_3dep_dir):
-        shutil.rmtree(dem_3dep_dir)
+        
     
     # directory location
     os.makedirs(dem_3dep_dir, exist_ok=True)
@@ -280,13 +261,13 @@ def acquired_and_process_lidar_dems(
     retrieve_process_write_single_3dep_dem_tile_partial = partial(
         retrieve_process_write_single_3dep_dem_tile,
         dem_resolution = dem_resolution,
-        crs = tile_inputs.crs,
-        target_crs = 'EPSG:5070',
+        crs = crs,
         ndv = ndv,
         dem_3dep_dir = dem_tile_dir,
         write_kwargs = write_kwargs,
         write_ext = write_ext,
-        sleep_time = sleep_time
+        sleep_time = sleep_time,
+        max_retries = max_retries
     )
 
     # Assuming tile_inputs is your GeoDataFrame
@@ -296,14 +277,17 @@ def acquired_and_process_lidar_dems(
     #tile_inputs_list = list(tile_inputs_list)[:10]
 
     # download tiles
-    #'''
+    '''
     dem_tile_file_names = [None] * len(tile_inputs)
     for i, (idx, huc, tile_geom) in tqdm(
         tile_inputs.iterrows(), total=len(tile_inputs), desc="Downloading 3DEP DEMs by tile"
     ):
-        dem_tile_file_names[i] =  retrieve_process_write_single_3dep_dem_tile_partial(idx, huc, tile_geom)
-    #'''
+        try:
+            dem_tile_file_names[i] =  retrieve_process_write_single_3dep_dem_tile_partial(idx, huc, tile_geom)
+        except Exception as e:
+            pass
     breakpoint()
+    '''
     
     # submit futures
     futures = [client.submit(retrieve_process_write_single_3dep_dem_tile_partial, *row) for row in tile_inputs_list]
@@ -420,6 +404,14 @@ if __name__ == '__main__':
         help='Sleep time in seconds for retries',
         type=int,
         default=DEFAULT_SLEEP_TIME,
+        required=False
+    )
+
+    parser.add_argument(
+        '-m', '--max-retries',
+        help='Max retries',
+        type=int,
+        default=MAX_RETRIES,
         required=False
     )
     
