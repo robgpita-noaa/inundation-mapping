@@ -5,22 +5,14 @@
 Acquires and preprocesses 3DEP DEMs for use with HAND FIM.
 
 TODO:
-    - move tile functionality to separate script
-        - creates tile url list and tile index with gdaltindex
-    - implement tile index based input
-        - remove wbd and buffer functionality
-        - remove tile list functionality
     - implement logging
 
 Command Line Usage:
-    r=<dem_resolution>; /foss_fim/data/usgs/get_3dep_static_tiles.py -r ${r} -t /data/misc/lidar/ngwpc_PI1_lidar_hucs.gpkg -d /data/inputs/3dep_dems/${r}m_5070_lidar_tiles -l ngwpc_PI1_lidar_hucs -o -j 1
-
-Tile Index Command
-    DATE=<date>; gdaltindex -f GPKG -write_absolute_path -t_srs EPSG:5070 -lyr_name usgs_rocky_3dep_1m_tile_index usgs_rocky_3dep_1m_tile_index_${DATE}.gpkg --optfile 3dep_file_urls.lst
+    date_yyymmdd=<YYYYMMDD>; /foss_fim/data/usgs/get_3dep_static_tiles.py -t /data/inputs/3dep_dems/lidar_tile_index/usgs_rocky_3dep_1m_tile_index_${date_yyymmdd}.gpkg -d /data/inputs/3dep_dems/${r}m_5070_lidar_tiles -o -j 1
 """
 
 from __future__ import annotations
-from typing import List, Set
+from typing import List
 from numbers import Number
 from pyproj import CRS
 
@@ -46,7 +38,6 @@ import rioxarray as rxr
 gdal.UseExceptions()
 
 # get directories from env variables
-projectDir = os.getenv('projectDir')
 srcDir = os.getenv('srcDir')
 inputsDir = os.getenv('inputsDir')
 
@@ -97,51 +88,49 @@ def retrieve_process_write_single_3dep_dem_tile(
     """
 
     # open rasterio dataset
-    dem = rxr.open_rasterio(url, parse_coordinates=False, mask_and_scale=True)
-    
-    # reproject, remove nan padding, and set encoded ndv
-    dem = (
-        dem
-        .odc.reproject( 
-            crs,
-            resolution=dem_resolution,
-            resampling=Resampling.bilinear
+    with rxr.open_rasterio(url, parse_coordinates=False, mask_and_scale=True) as dem:
+        
+        # reproject, remove nan padding, and set encoded ndv
+        dem = (
+            dem
+            .odc.reproject( 
+                crs,
+                resolution=dem_resolution,
+                resampling=Resampling.bilinear
+            )
+            .rio.write_nodata(ndv, inplace=True, encoded=True)
         )
-        .dropna('y',how='all')
-        .dropna('x', how='all')
-        .rio.write_nodata(ndv, inplace=True, encoded=True)
-    )
 
-    # set attributes
-    dem.attrs['TILE_ID'] = str(uuid.uuid4()).replace('-', '')
-    dem.attrs['ACQUIRED_DATETIME_UTC'] = pd.Timestamp.utcnow().strftime('%Y-%m-%d %H:%M:%S')
-    dem.attrs['SOURCE_URL'] = url
-    
-    # create write path
-    # TODO: Verify this logic
-    url_split = url.split('/')
-    project_name = url_split[-3]
-    tile_name = url_split[-1].split('.')[0]
+        #.dropna('y',how='all')
+        #.dropna('x', how='all')
 
-    # construct file name
-    dem_file_name = os.path.join(dem_tile_dir,f'{project_name}___{tile_name}.{write_ext}')
+        # set attributes
+        dem.attrs['TILE_ID'] = str(uuid.uuid4()).replace('-', '')
+        dem.attrs['ACQUIRED_DATETIME_UTC'] = pd.Timestamp.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+        dem.attrs['SOURCE_URL'] = url
+        
+        # create write path
+        # TODO: Verify this logic
+        url_split = url.split('/')
+        project_name = url_split[-3]
+        tile_name = url_split[-1].split('.')[0]
 
-    # write file
-    dem.rio.to_raster(
-        dem_file_name,
-        **write_kwargs
-    )
+        # construct file name
+        dem_file_name = os.path.join(dem_tile_dir,f'{project_name}___{tile_name}.{write_ext}')
 
-    # close dem
-    dem.close()
+        # write file
+        dem.rio.to_raster(
+            dem_file_name,
+            **write_kwargs
+        )
 
     return dem_file_name
 
 
 def get_3dep_static_tiles(
-    dem_resolution : Number,
     dem_3dep_dir : str | Path,
     tile_index : str | Path | gpd.GeoDataFrame,
+    dem_resolution : Number = 1,
     write_kwargs : dict = WRITE_KWARGS,
     write_ext : str = 'tif',
     overwrite : bool = False,
@@ -249,7 +238,7 @@ def get_3dep_static_tiles(
     client = get_client()
 
     # debug
-    tile_urls_list = tile_urls_list[:10]
+    #tile_urls_list = tile_urls_list[:10]
 
     # submit futures
     futures = [client.submit(retrieve_process_write_single_3dep_dem_tile_partial, url) for url in tile_urls_list]
@@ -304,6 +293,8 @@ def create_3dep_dem_vrts(
     ndv : Number,
     ten_m_vrt : str | Path
 ) -> str | Path:
+    
+    breakpoint()
 
     # create vrt
     opts = gdal.BuildVRTOptions( 
@@ -316,7 +307,7 @@ def create_3dep_dem_vrts(
     )
 
     # mosaic with 10m VRT
-    seamless_vrt_fn = os.path.join(dem_3dep_dir,f'dem_3dep_{dem_resolution}m.vrt')
+    seamless_vrt_fn = os.path.join(dem_3dep_dir, f'fim_seamless_3dep_dem_{dem_resolution}m_5070.vrt')
 
     # create source file list with tiles first and 10m vrt last
     src_files = dem_tile_file_names + [ten_m_vrt]
@@ -376,13 +367,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Acquires and preprocesses 3DEP DEMs for use with HAND FIM.')
 
     parser.add_argument(
-        '-r', '--dem-resolution',
-        help='DEM resolution in meters',
-        type=int,
-        required=True
-    )
-
-    parser.add_argument(
         '-d', '--dem-3dep-dir',
         help='Path to 3DEP DEM directory',
         type=str,
@@ -394,6 +378,14 @@ if __name__ == '__main__':
         help='Path to tile index',
         type=str,
         required=True
+    )
+
+    parser.add_argument(
+        '-r', '--dem-resolution',
+        help='DEM resolution in meters',
+        type=Number,
+        required=False,
+        default=1
     )
 
     parser.add_argument(
