@@ -130,7 +130,7 @@ def create_3dep_1m_tile_index(
         if overwrite:
             os.remove(tile_index_fn)
         else:
-            answer = input('Are you sure you want to overwrite the existing 3DEP DEMs? (yes/y/no/n): ')
+            answer = input('Are you sure you want to overwrite the existing 3DEP 1m DEM tile index (yes/y/no/n): ')
             if (answer.lower() == 'y') | (answer.lower() == 'yes'):
                 os.remove(tile_index_fn)
             else:
@@ -164,7 +164,6 @@ def create_3dep_1m_tile_index(
         f_tmp_path = f_tmp.name
 
         # subprocess
-        breakpoint()
         subprocess.run(
             [
                 'gdaltindex',
