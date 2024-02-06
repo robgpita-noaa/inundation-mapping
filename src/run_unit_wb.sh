@@ -17,6 +17,17 @@ branch_list_lst_file=$tempHucDataDir/branch_ids.lst
 
 branchSummaryLogFile=$outputDestDir/logs/branch/"$hucNumber"_summary_branch.log
 
+# Denote input_DEM
+if [ "$input_DEM_source" = "seamless_10m" ]; then
+    input_DEM=$input_DEM_seamless
+elif [ "$input_DEM_source" = "tiles_1m" ]; then
+    input_DEM=$input_DEM_tiles
+else
+    echo -e "input_DEM_source is not set to a valid option. Only 'seamless_10m' or 'tiles_1m' are valid options. Please check your config file. Exiting ..."
+    exit 1
+fi
+
+
 ## INITIALIZE TOTAL TIME TIMER ##
 T_total_start
 huc_start_time=`date +%s`
@@ -112,7 +123,6 @@ echo -e $startDiv"Clipping rasters to branches $hucNumber $branch_zero_id"
 # Note: don't need to use gdalwarp -cblend as we are using a buffered wbd
 date -u
 Tstart
-
 [ ! -f $tempCurrentBranchDataDir/dem_meters.tif ] && \
 gdalwarp -cutline $tempHucDataDir/wbd_buffered.gpkg -crop_to_cutline -ot Float32 -r bilinear -of "GTiff" \
     -overwrite -co "BLOCKXSIZE=512" -co "BLOCKYSIZE=512" -co "TILED=YES" -co "COMPRESS=LZW" \
