@@ -214,8 +214,8 @@ def get_3dep_static_tiles(
     # for debugging
     '''
     breakpoint()
-    #dem_file_name = retrieve_process_write_single_3dep_dem_tile_partial(tile_urls_list[0])
-    #breakpoint()
+    dem_file_name = retrieve_process_write_single_3dep_dem_tile_partial(tile_urls_list[0])
+    breakpoint()
 
     # download tiles serially
     #tile_urls_list = tile_urls_list[:10]
@@ -283,6 +283,9 @@ def get_3dep_static_tiles(
     # close pbar
     pbar.close()
 
+    # remove None values
+    dem_tile_file_names = [f for f in dem_tile_file_names if f is not None]
+
     return dem_tile_file_names
 
 
@@ -293,8 +296,9 @@ def create_3dep_dem_vrts(
     ndv : Number,
     ten_m_vrt : str | Path
 ) -> str | Path:
-    
-    breakpoint()
+    """
+    Creates seamless 3DEP DEM VRTs.
+    """
 
     # create vrt
     opts = gdal.BuildVRTOptions( 
