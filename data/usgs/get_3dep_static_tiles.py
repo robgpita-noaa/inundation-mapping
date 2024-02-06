@@ -101,16 +101,12 @@ def retrieve_process_write_single_3dep_dem_tile(
             .rio.write_nodata(ndv, inplace=True, encoded=True)
         )
 
-        #.dropna('y',how='all')
-        #.dropna('x', how='all')
-
         # set attributes
         dem.attrs['TILE_ID'] = str(uuid.uuid4()).replace('-', '')
         dem.attrs['ACQUIRED_DATETIME_UTC'] = pd.Timestamp.utcnow().strftime('%Y-%m-%d %H:%M:%S')
         dem.attrs['SOURCE_URL'] = url
         
         # create write path
-        # TODO: Verify this logic
         url_split = url.split('/')
         project_name = url_split[-3]
         tile_name = url_split[-1].split('.')[0]
