@@ -282,6 +282,10 @@ def get_3dep_static_tiles(
     # remove None values
     dem_tile_file_names = [f for f in dem_tile_file_names if f is not None]
 
+    # raise error if no dems were retrieved
+    if len(dem_tile_file_names) == 0:
+        raise ValueError("No 3DEP DEMs were retrieved")
+
     return dem_tile_file_names
 
 
