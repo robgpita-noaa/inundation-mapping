@@ -8,11 +8,11 @@ TODO:
     - implement logging
 
 Command Line Usage:
-    date_yyymmdd=<YYYYMMDD>; /foss_fim/data/usgs/get_3dep_static_tiles.py -t /data/inputs/3dep_dems/lidar_tile_index/usgs_rocky_3dep_1m_tile_index_${date_yyymmdd}.gpkg -d /data/inputs/3dep_dems/${r}m_5070_lidar_tiles -o -j 1
+    date_yyymmdd=<YYYYMMDD>; r=1; /foss_fim/data/usgs/get_3dep_static_tiles.py -t /data/inputs/3dep_dems/lidar_tile_index/usgs_rocky_3dep_${r}m_tile_index_${date_yyymmdd}.gpkg -d /data/inputs/3dep_dems/${r}m_5070_lidar_tiles -o -j 1
 """
 
 from __future__ import annotations
-from typing import List
+from typing import List, Sequence
 from numbers import Number
 from pyproj import CRS
 
@@ -125,7 +125,7 @@ def retrieve_process_write_single_3dep_dem_tile(
 
 def get_3dep_static_tiles(
     dem_3dep_dir : str | Path,
-    tile_index : str | Path | gpd.GeoDataFrame,
+    tile_index : str | Path | gpd.GeoDataFrame | Sequence[str | Path | gpd.GeoDataFrame],
     dem_resolution : Number = 1,
     write_kwargs : dict = WRITE_KWARGS,
     write_ext : str = 'tif',
@@ -139,12 +139,12 @@ def get_3dep_static_tiles(
 
     Parameters
     ----------
-    dem_resolution : Number
-        DEM resolution in meters.
-    dem_3dep_dir : str | Path
+    dem_resolution : Number or Sequence[Number]
+        DEM resolution in meters. Also, accepts a sequence of numbers that correspond to the sequence of tile indices.
+    dem_3dep_dir : str or Path
         Path to 3DEP DEM directory.
-    tile_index : str | Path | gpd.GeoDataFrame
-        Path to tile index or GeoDataFrame.
+    tile_index : str or Path or gpd.GeoDataFrame or Sequence[str or Path or gpd.GeoDataFrame]
+        Path to tile index or tile index as GeoDataFrame. Also, accepts a sequence of str, paths, or GeoDataFrames.
     write_kwargs : dict, default = WRITE_KWARGS
         Write kwargs.
     write_ext : str, default = 'tif'
@@ -192,99 +192,127 @@ def get_3dep_static_tiles(
     # load tiles
     if isinstance(tile_index, (str, Path)):
         tile_index = gpd.read_file(tile_index)
+    elif isinstance(tile_index, (gpd.GeoDataFrame)):
+        pass
+    elif isinstance(tile_index, (Sequence)):
+        tile_index = pd.concat([gpd.read_file(tile_fn) for tile_fn in tile_index])
+    else:
+        raise ValueError("tile_index must be a str, Path, GeoDataFrame, or Sequence[str, Path, GeoDataFrame]")
     
-    # get tile urls
-    tile_urls_list = tile_index['location'].tolist()
+    breakpoint()
+    # sort tile_index based on order of dem_resolution
+    tile_index = tile_index.sort_values(by='dem_resolution', ignore_index=True)
+    
+    # number of inputs
+    num_of_inputs = len(tile_index)
 
     # create partial function for 3dep acquisition
     retrieve_process_write_single_3dep_dem_tile_partial = partial(
         retrieve_process_write_single_3dep_dem_tile,
-        dem_resolution = dem_resolution,
         crs = crs,
         ndv = ndv,
         dem_tile_dir = dem_tile_dir,
         write_kwargs = write_kwargs,
         write_ext = write_ext
     )
-    
-    # for debugging
-    '''
-    breakpoint()
-    dem_file_name = retrieve_process_write_single_3dep_dem_tile_partial(tile_urls_list[0])
-    breakpoint()
-
-    # download tiles serially
-    #tile_urls_list = tile_urls_list[:10]
-    dem_tile_file_names = [None] * len(tile_urls_list)
-    for i, url in tqdm(
-        enumerate(tile_urls_list), desc="Downloading 3DEP DEMs by tile", total=len(tile_urls_list)
-    ):
-        try:
-            dem_tile_file_names[i] =  retrieve_process_write_single_3dep_dem_tile_partial(url)
-        except Exception as e:
-            print(f"Failed to retrieve, process, and write 3DEP DEM tile: {url}")
-            pass
-    
-    # remove None values
-    dem_tile_file_names = [x for x in dem_tile_file_names if x is not None]
-    breakpoint()
-    '''
-
-    # get dask client
-    client = get_client()
 
     # debug
-    #tile_urls_list = tile_urls_list[:10]
+    # tile_index = tile_index.head(10)
 
-    # submit futures
-    futures = [client.submit(retrieve_process_write_single_3dep_dem_tile_partial, url) for url in tile_urls_list]
-
-    # Dictionary to keep track of retries
-    retries = {future: 0 for future in futures}
-
-    # create pbar
-    pbar = tqdm(total=len(futures), desc=f"Downloading 3DEP DEMs at {dem_resolution}m")
-
-    # Loop through the futures, checking for exceptions and resubmitting the task if necessary
-    dem_tile_file_names = [None] * len(futures)
-    for future in as_completed(futures):
-        # Get the index of the future
-        idx = futures.index(future)
+    # get dask client, if not available, download serially
+    try:
         
-        try:
-            dem_tile_file_names[idx] = future.result()  # You can use the result here if needed
-        except Exception as e:
+        client = get_client()
+    
+    # download tiles serially since client is not available
+    except ValueError:
 
-            # Find the original arguments used for the failed future
-            url = tile_urls_list[idx]
+        print("Dask client not available, downloading 3DEP DEMs serially ...")
+        
+        res_and_tile_fn_tuple = [(None, None)] * num_of_inputs
+        for i, rows in tqdm(tile_index.iterrows(), desc="Downloading 3DEP DEMs by tile", total=num_of_inputs):
             
-            if retries[future] < max_retries:
-                # Increment the retry count for this future
-                retries[future] += 1
-                
-                # Resubmit the task directly using client.submit
-                new_future = client.submit(retrieve_process_write_single_3dep_dem_tile_partial, url)
-                
-                # Replace the failed future with the new future in the list and update the retries dictionary
-                futures[idx] = new_future
-                retries[new_future] = retries[future]
+            # get inputs
+            url, res = rows['location'], rows['dem_resolution']
             
-            else:
-                # If the maximum number of retries has been reached, print an error message
+            # retrieve, process, and write 3dep dem tile
+            try:
+                tile_fn = retrieve_process_write_single_3dep_dem_tile_partial(url, res)
+            except Exception as e:
                 print(f"Failed to retrieve, process, and write 3DEP DEM tile: {url}")
+                pass
+            else:
+                res_and_tile_fn_tuple[i] = (res, tile_fn)
 
-        finally:
-            pbar.update(1)
+    # use dask client
+    else:
 
-    # close pbar
-    pbar.close()
+        print(f"Downloading 3DEP DEMs at {dem_resolution}m using Dask {client} ...")
+
+        # submit futures
+        futures = [
+            client.submit(
+                retrieve_process_write_single_3dep_dem_tile_partial, row['location'], row['dem_resolution']
+            ) 
+            for _, row in tile_index.iterrows()
+        ]
+
+        # Dictionary to keep track of retries
+        retries = {future: 0 for future in futures}
+
+        # create pbar
+        pbar = tqdm(total=len(futures), desc=f"Downloading 3DEP DEM tiles")
+
+        # Loop through the futures, checking for exceptions and resubmitting the task if necessary
+        res_and_tile_fn_tuple = [(None, None)] * len(futures)
+        for future in as_completed(futures):
+            # Get the index of the future
+            idx = futures.index(future)
+            
+            try:
+                tile_fn = future.result()
+            except:
+                # Find the original arguments used for the failed future
+                url, res = tile_index.loc[idx, ['location', 'dem_resolution']]
+                
+                if retries[future] < max_retries:
+                    # Increment the retry count for this future
+                    retries[future] += 1
+                    
+                    # Resubmit the task directly using client.submit
+                    new_future = client.submit(retrieve_process_write_single_3dep_dem_tile_partial, url, res)
+                    
+                    # Replace the failed future with the new future in the list and update the retries dictionary
+                    futures[idx] = new_future
+                    retries[new_future] = retries[future]
+                
+                else:
+                    # If the maximum number of retries has been reached, print an error message
+                    print(f"Failed to retrieve, process, and write 3DEP DEM tile: {url}")
+
+            finally:
+                res = tile_index.loc[idx, 'dem_resolution']
+                res_and_tile_fn_tuple[idx] = (res, tile_fn)
+
+                pbar.update(1)
+
+        # close pbar
+        pbar.close()
 
     # remove None values
-    dem_tile_file_names = [f for f in dem_tile_file_names if f is not None]
+    res_and_tile_fn_tuple = [
+        res_tile for res_tile in res_and_tile_fn_tuple if (res_tile[0] is not None) & (res_tile[1] is not None)
+    ]
 
     # raise error if no dems were retrieved
-    if len(dem_tile_file_names) == 0:
+    if len(res_and_tile_fn_tuple) == 0:
         raise ValueError("No 3DEP DEMs were retrieved")
+    
+    # sort by increasing resolution
+    res_and_tile_fn_tuple = sorted(res_and_tile_fn_tuple, key=lambda x: x[0])
+
+    # get dem_tile_file_names
+    dem_tile_file_names = [tile_fn for _, tile_fn in res_and_tile_fn_tuple]
 
     return dem_tile_file_names
 
@@ -380,14 +408,13 @@ if __name__ == '__main__':
     parser.add_argument(
         '-t', '--tile-index',
         help='Path to tile index',
-        type=str,
-        required=True
+        required=True,
+        nargs='+'
     )
 
     parser.add_argument(
         '-r', '--dem-resolution',
         help='DEM resolution in meters',
-        type=Number,
         required=False,
         default=1
     )
