@@ -199,7 +199,6 @@ def get_3dep_static_tiles(
     else:
         raise ValueError("tile_index must be a str, Path, GeoDataFrame, or Sequence[str, Path, GeoDataFrame]")
     
-    breakpoint()
     # sort tile_index based on order of dem_resolution
     tile_index = tile_index.sort_values(by='dem_resolution', ignore_index=True)
     
