@@ -170,19 +170,16 @@ def get_3dep_static_tiles(
     """
 
     # handle retry and overwrite check logic
-    if overwrite:
-        #shutil.rmtree(dem_3dep_dir)
-        shutil.rmtree(os.path.join(dem_3dep_dir), ignore_errors=True)
-    else:
-        answer = input('Are you sure you want to overwrite the existing 3DEP DEMs? (yes/y/no/n): ')
-        if (answer.lower() == 'y') | (answer.lower() == 'yes'):
-            # logger.info('Exiting due to not overwriting.')
-            #shutil.rmtree(dem_3dep_dir)
-            shutil.rmtree(os.path.join(dem_3dep_dir), ignore_errors=True)
+    if os.path.exists(dem_3dep_dir):
+        if overwrite:
+            shutil.rmtree(dem_3dep_dir)
         else:
-            # logger.info('Exiting due to not overwriting and not retrying.')
-            exit()
-        
+            answer = input('Are you sure you want to overwrite the existing 3DEP DEMs? (yes/y/no/n): ')
+            if (answer.lower() == 'y') | (answer.lower() == 'yes'):
+                shutil.rmtree(dem_3dep_dir)
+            else:
+                print('Exiting ... directory already exists and overwrite not confirmed.')
+                exit()
     
     # directory location
     os.makedirs(dem_3dep_dir, exist_ok=True)
