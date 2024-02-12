@@ -28,5 +28,5 @@ run_name=$1
 # Allow ability to run docker as non-root user 
 sudo chmod 666 /var/run/docker.sock
 
-docker run --rm --name fim_post_processing  -v /efs/repo/inundation-mapping/:/foss_fim -v /fsx/inputs/:/data/inputs -v /efs/outputs/:/outputs -v /fsx/outputs_temp/:/fim_temp robgpita/fim:fim_4 ./foss_fim/fim_post_processing.sh -n "${run_name}" -j 34
+docker run --rm --name fim_post_processing  -v /efs/repo/inundation-mapping/:/foss_fim -v /efs/inputs/:/data/inputs -v /efs/outputs/:/outputs -v /efs/outputs_temp/:/fim_temp robgpita/fim:fim_4 ./foss_fim/fim_post_processing.sh -n "${run_name}" -j 34
 
