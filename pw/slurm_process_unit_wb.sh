@@ -49,7 +49,7 @@ sbatch <<-EOF
 
     echo "Container name is \${RUN_NAME}_\${HUC}"
 
-    docker run --rm --name \${RUN_NAME}_\${HUC} -v /efs/repo/inundation-mapping/:/foss_fim -v /efs/inputs/:/data/inputs -v /efs/outputs/:/outputs -v /efs/outputs_temp/:/fim_temp robgpita/fim:fim_4 ./foss_fim/fim_process_unit_wb.sh \${RUN_NAME} \${HUC}
+    docker run --rm --name \${RUN_NAME}_\${HUC} -v /efs/repo/inundation-mapping/:/foss_fim -v /efs/inputs/:/data/inputs -v /efs/outputs/:/outputs -v /efs/outputs_temp/:/fim_temp robgpita/fim:lidar_a3c2854 ./foss_fim/fim_process_unit_wb.sh \${RUN_NAME} \${HUC}
 
 EOF
 
