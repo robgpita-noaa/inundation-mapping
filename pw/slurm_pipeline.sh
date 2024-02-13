@@ -11,6 +11,7 @@
 #####################################################################################################################
 
 huc_list=$1
+run_name=$2
 
 ## Exit if incorrect arguments (here we need to provide a huclist that is accessible to the docker container)
 if [ "${huc_list:0:5}" != "/data" ]
@@ -24,8 +25,8 @@ then
     exit 1
 fi
 
+#####################################################################################################################
 ## Replace run_name in slurm_process_unit.sh with input argument ($2)
-run_name=$2
 sed -i -e "s/placeholder/$run_name/g" slurm_process_unit_wb.sh
 
 #####################################################################################################################
@@ -34,27 +35,41 @@ sed -i -e "s/placeholder/$run_name/g" slurm_process_unit_wb.sh
 ## volume mount for the data directory 
 
 relative_huc_list=${huc_list/data/efs}
-#####################################################################################################################
 
 #####################################################################################################################
 ## Split up the processing into 3 seperate logical processing steps (pre, compute, post)
-## Each step correlates to a batch job sent to the scheduler to ensure the are processed in the correct order
-## We are using the --dependency flag to wait for each step to finish before moving on to the next one 
+## Each step correlates to a batch job/job array sent to the scheduler to ensure they are processed in the correct order
+## We are making use of the sbatch --dependency option to wait for each step to finish before moving on to the next one 
+
 ## The SLURM_PRE_PROCESSING job sets up the folder structure and environment variables
 ## The SLURM_PROCESS_UNIT_WB job is an array job, which parallelizes the HUC8 level processing
-## The post processing job is not named here, however it runs the post processing steps (modifies rating curves, etc)
+## The post processing job runs the post processing steps (modifies rating curves, etc)
 
-printf "\n Initiating fim_pre_processing job with ${2} as the run_name, and \n ${1} as the huc_list \n"
+printf "\n Initiating fim_pre_processing job with a run_name of ${2} \n\t huc_list: ${1} \n"
 
-SLURM_PRE_PROCESSING=$(sbatch --parsable slurm_pre_processing.sh ${1} ${2})
+SLURM_PRE_PROCESSING=$(sbatch --parsable --partition=pre-processing slurm_pre_processing.sh ${1} ${2})
 
-SLURM_PROCESS_UNIT_WB=$(sbatch --parsable --dependency=afterok:$SLURM_PRE_PROCESSING slurm_process_unit_wb.sh ${relative_huc_list})
+printf "\n Jobs submitted, see appropriate SLURM.out files in directory where this script was run for details."
+printf "\n\t Run squeue to view the job queue. \n\n"
 
-## post-processing compute c5.18xlarge - 72vCPU -> 36 CPU -2 (fim code requirement) = -j 34 
-sbatch --parsable --dependency=afterany:$SLURM_PROCESS_UNIT_WB slurm_post_processing.sh -n ${run_name} -j 34
+## TODO - create another partition with a small VM for this one, as it just creates the job array
+SLURM_PROCESS_UNIT_WB=$(sbatch --dependency=afterok:$SLURM_PRE_PROCESSING --parsable slurm_process_unit_wb.sh ${relative_huc_list})
+
+printf "\n SLURM_PROCESS_UNIT_WB Submitted, Job ID is: $SLURM_PROCESS_UNIT_WB \n"
+
+SLURM_PROCESS_UNIT_JOB_ARRAY_ID=$(($SLURM_PROCESS_UNIT_WB + 1))
+
+printf "\n SLURM_PROCESS_UNIT_JOB_ARRAY_ID is: $SLURM_PROCESS_UNIT_JOB_ARRAY_ID \n"
+
+## Wait about 5 minutes to let the pre processing complete, and let the scheduler submit the array job first
+## There are no "futures" in slurm. The job id passed to --dependency must precede the current job id 
+sleep 300
+
+## post-processing compute c5.24xlarge - 96vCPU -> 48 CPU -2 (fim code requirement) = -j 46
+bash slurm_post_processing.sh ${run_name} ${SLURM_PROCESS_UNIT_JOB_ARRAY_ID}
+
+printf "\n slurm_post_processing.sh submitted, this depends on all of the array jobs completing. \n"
 #####################################################################################################################
-
-printf "Jobs submitted, see appropriate SLURM .out files for details \n Run squeue for job status. \n"
 
 ## Revert run_name arg back to placeholder
 sed -i -e "s/$run_name/placeholder/g" slurm_process_unit_wb.sh

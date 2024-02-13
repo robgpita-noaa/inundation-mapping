@@ -13,11 +13,10 @@ run_name=$2
 
 #SBATCH --job-name=slurm_pre_processing
 #SBATCH --output %x.out # %x is the ^^ slurm job-name
-##SBATCH --partition=compute
-#SBATCH --partition=pre-processing # This is set in PW Cluster Definition
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task 1 # Use this for threads/cores in single-node jobs.
 #SBATCH --time=00:10:00
+##SBATCH --partition=pre-processing # This is set in PW Cluster Definition
 
 ## Allow ability to run docker as non-root user 
 sudo chmod 666 /var/run/docker.sock
