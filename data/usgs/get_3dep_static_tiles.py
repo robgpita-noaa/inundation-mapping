@@ -8,7 +8,7 @@ TODO:
     - implement logging
 
 Command Line Usage:
-    date_yyymmdd=<YYYYMMDD>; r=1; /foss_fim/data/usgs/get_3dep_static_tiles.py -t /data/inputs/3dep_dems/lidar_tile_index/usgs_rocky_3dep_${r}m_tile_index_${date_yyymmdd}.gpkg -d /data/inputs/3dep_dems/${r}m_5070_lidar_tiles -o -j 1
+    /foss_fim/data/usgs/get_3dep_static_tiles.py -t <your_1m_tile_index> <your_3m_tile_index> -d /data/inputs/3dep_dems/1m_5070_lidar_tiles -j <some_worker_number>
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ from numbers import Number
 from pyproj import CRS
 
 import uuid
-import shutil
 import argparse
 import os
 from pathlib import Path
@@ -25,12 +24,11 @@ from functools import partial
 
 from osgeo import gdal
 from rasterio.enums import Resampling
-import dask
 import pandas as pd
 import geopandas as gpd
 import odc.geo.xr
 from dotenv import load_dotenv
-from dask.distributed import Client, as_completed, get_client
+from dask.distributed import Client, as_completed, get_client, LocalCluster
 from tqdm import tqdm
 import rioxarray as rxr
 
@@ -74,18 +72,39 @@ WRITE_KWARGS = {
 }
 
 
-def retrieve_process_write_single_3dep_dem_tile(
+def _retrieve_process_write_single_3dep_dem_tile(
     url : str,
     dem_resolution : Number,
     crs : str | CRS,
     ndv : Number,
     dem_tile_dir : str,
     write_kwargs : dict,
-    write_ext : str
+    write_ext : str,
+    completed_tiles_fn : str,
+    overwrite : bool
 ) -> str:
     """
     Retrieves and processes a single 3DEP DEM tile.
     """
+
+    # create write path
+    url_split = url.split('/')
+    project_name = url_split[-3]
+    tile_name = url_split[-1].split('.')[0]
+
+    # construct file name
+    dem_file_name = os.path.join(dem_tile_dir,f'{project_name}___{tile_name}.{write_ext}')
+
+    # open completed tile list
+    with open(completed_tiles_fn, 'r') as f:
+        completed_tiles = set(f.read().splitlines())
+ 
+    # check if file exists and return if not overwriting
+    if (dem_file_name in completed_tiles) & os.path.exists(dem_file_name):
+        if overwrite:
+            os.remove(dem_file_name)
+        else:
+            return dem_file_name            
 
     # open rasterio dataset
     with rxr.open_rasterio(url, parse_coordinates=False, mask_and_scale=True) as dem:
@@ -105,14 +124,6 @@ def retrieve_process_write_single_3dep_dem_tile(
         dem.attrs['TILE_ID'] = str(uuid.uuid4()).replace('-', '')
         dem.attrs['ACQUIRED_DATETIME_UTC'] = pd.Timestamp.utcnow().strftime('%Y-%m-%d %H:%M:%S')
         dem.attrs['SOURCE_URL'] = url
-        
-        # create write path
-        url_split = url.split('/')
-        project_name = url_split[-3]
-        tile_name = url_split[-1].split('.')[0]
-
-        # construct file name
-        dem_file_name = os.path.join(dem_tile_dir,f'{project_name}___{tile_name}.{write_ext}')
 
         # write file
         dem.rio.to_raster(
@@ -120,71 +131,71 @@ def retrieve_process_write_single_3dep_dem_tile(
             **write_kwargs
         )
 
+    # write to completed tiles
+    with open(completed_tiles_fn, 'a') as f:
+        f.write(dem_file_name + '\n')
+
     return dem_file_name
 
 
 def get_3dep_static_tiles(
     dem_3dep_dir : str | Path,
     tile_index : str | Path | gpd.GeoDataFrame | Sequence[str | Path | gpd.GeoDataFrame],
-    dem_resolution : Number = 1,
     write_kwargs : dict = WRITE_KWARGS,
     write_ext : str = 'tif',
-    overwrite : bool = False,
     crs : str | CRS = DEFAULT_FIM_PROJECTION_CRS,
     ndv : Number = -999999,
+    overwrite : bool = False,
     max_retries : int = MAX_RETRIES
-) -> str | Path:
+) -> List[str | Path]:
     """
-    Acquires and preprocesses 3DEP DEMs for use with HAND FIM.
+    Acquires and preprocesses 3DEP DEM tiles for use with HAND FIM.
 
     Parameters
     ----------
-    dem_resolution : Number or Sequence[Number]
-        DEM resolution in meters. Also, accepts a sequence of numbers that correspond to the sequence of tile indices.
     dem_3dep_dir : str or Path
-        Path to 3DEP DEM directory.
-    tile_index : str or Path or gpd.GeoDataFrame or Sequence[str or Path or gpd.GeoDataFrame]
-        Path to tile index or tile index as GeoDataFrame. Also, accepts a sequence of str, paths, or GeoDataFrames.
+        Path to 3DEP DEM directory outputs.
+    tile_index : str or Path or gpd.GeoDataFrame or Sequence of str or Path or gpd.GeoDataFrame
+        Path to tile index or tile index as GeoDataFrame. Also, accepts a sequence of paths or GeoDataFrames. Tile indices are constructed with `gdaltindex`. Must contain 'location' and 'dem_resolution' columns.
     write_kwargs : dict, default = WRITE_KWARGS
-        Write kwargs.
+        Write kwargs for tiles.
     write_ext : str, default = 'tif'
-        Write extension.
-    overwrite : bool, default = False
-        Force overwrite without prompt.
+        Write extension for tiles.
     crs : str | CRS, default = DEFAULT_FIM_PROJECTION_CRS
-        Target desired CRS.
+        Target desired CRS for tiles.
     ndv : Number, default = -999999
-        No data value.
+        No data value for tiles.
+    overwrite : bool, default = False
+        Overwrite existing tiles.
     max_retries : int, default = MAX_RETRIES
-        Max retries.
+        Max retries for each tile.
 
     Returns
     -------
-    Path
-        Path to VRT file.
+    List of str or Path
+        Path to VRT file. Returns str if dem_tile_dir is a str, and Path if dem_tile_dir is a Path.
 
     Raises
     ------
     ValueError
-        If client is not provided and cannot be created.
+        If no 3DEP DEMs were retrieved.
     """
-
-    # handle retry and overwrite check logic
-    if os.path.exists(dem_3dep_dir):
-        if overwrite:
-            shutil.rmtree(dem_3dep_dir)
-        else:
-            answer = input('Are you sure you want to overwrite the existing 3DEP DEMs? (yes/y/no/n): ')
-            if (answer.lower() == 'y') | (answer.lower() == 'yes'):
-                shutil.rmtree(dem_3dep_dir)
-            else:
-                print('Exiting ... directory already exists and overwrite not confirmed.')
-                exit()
     
-    # directory location
+    # parent directory location
     os.makedirs(dem_3dep_dir, exist_ok=True)
+    
+    # create tiles directory
     dem_tile_dir = os.path.join(dem_3dep_dir, 'tiles')
     os.makedirs(dem_tile_dir, exist_ok=True)
+
+    # completed tiles file
+    completed_tiles_fn = os.path.join(dem_3dep_dir, 'processed_tiles.lst')
+    
+    # create completed tiles file if not exists or overwrite
+    if (not os.path.exists(completed_tiles_fn)) | (overwrite):
+        # just create the file with no contents
+        with open(completed_tiles_fn, 'w') as f:
+            pass
 
     # load tiles
     if isinstance(tile_index, (str, Path)):
@@ -203,13 +214,15 @@ def get_3dep_static_tiles(
     num_of_inputs = len(tile_index)
 
     # create partial function for 3dep acquisition
-    retrieve_process_write_single_3dep_dem_tile_partial = partial(
-        retrieve_process_write_single_3dep_dem_tile,
+    _retrieve_process_write_single_3dep_dem_tile_partial = partial(
+        _retrieve_process_write_single_3dep_dem_tile,
         crs = crs,
         ndv = ndv,
         dem_tile_dir = dem_tile_dir,
         write_kwargs = write_kwargs,
-        write_ext = write_ext
+        write_ext = write_ext,
+        overwrite = overwrite,
+        completed_tiles_fn = completed_tiles_fn
     )
 
     # debug
@@ -233,7 +246,7 @@ def get_3dep_static_tiles(
             
             # retrieve, process, and write 3dep dem tile
             try:
-                tile_fn = retrieve_process_write_single_3dep_dem_tile_partial(url, res)
+                tile_fn = _retrieve_process_write_single_3dep_dem_tile_partial(url, res)
             except Exception as e:
                 print(f"Failed to retrieve, process, and write 3DEP DEM tile: {url}")
                 pass
@@ -243,12 +256,12 @@ def get_3dep_static_tiles(
     # use dask client
     else:
 
-        print(f"Downloading 3DEP DEMs at {dem_resolution}m using Dask {client} ...")
+        print(f"Downloading 3DEP DEMs tiles using Dask {client} ...")
 
         # submit futures
         futures = [
             client.submit(
-                retrieve_process_write_single_3dep_dem_tile_partial, row['location'], row['dem_resolution']
+                _retrieve_process_write_single_3dep_dem_tile_partial, row['location'], row['dem_resolution']
             ) 
             for _, row in tile_index.iterrows()
         ]
@@ -272,11 +285,15 @@ def get_3dep_static_tiles(
                 url, res = tile_index.loc[idx, ['location', 'dem_resolution']]
                 
                 if retries[future] < max_retries:
+                    
+                    # Print a message indicating that the task is being retried
+                    print(f"Retrying to retrieve, process, and write 3DEP DEM tile: {url}")
+                    
                     # Increment the retry count for this future
                     retries[future] += 1
                     
                     # Resubmit the task directly using client.submit
-                    new_future = client.submit(retrieve_process_write_single_3dep_dem_tile_partial, url, res)
+                    new_future = client.submit(_retrieve_process_write_single_3dep_dem_tile_partial, url, res)
                     
                     # Replace the failed future with the new future in the list and update the retries dictionary
                     futures[idx] = new_future
@@ -375,14 +392,18 @@ def main(kwargs):
     # pop kwargs
     num_workers = kwargs.pop('num_workers')
     ten_m_vrt = kwargs.pop('ten_m_vrt')
+    dem_resolution = kwargs.pop('dem_resolution')
 
     # acquire and preprocess 3dep dems
-    with Client(n_workers=num_workers, threads_per_worker=1) as client:
-        dem_tile_file_names = get_3dep_static_tiles(**kwargs)
+    #with Client(n_workers=num_workers, threads_per_worker=1) as client:
+    with LocalCluster(n_workers=num_workers, threads_per_worker=1, memory_limit=None) as cluster:
+        with Client(cluster) as client:
+            dem_tile_file_names = get_3dep_static_tiles(**kwargs)
 
     # create vrt
-    kwargs = { k : kwargs[k] for k in ['dem_3dep_dir','dem_resolution','ndv']}
+    kwargs = { k : kwargs[k] for k in ['dem_3dep_dir','ndv']}
     kwargs['ten_m_vrt'] = ten_m_vrt
+    kwargs['dem_resolution'] = dem_resolution
 
     seamless_vrt_fn = create_3dep_dem_vrts(dem_tile_file_names, **kwargs)
 
@@ -410,14 +431,14 @@ if __name__ == '__main__':
 
     parser.add_argument(
         '-r', '--dem-resolution',
-        help='DEM resolution in meters',
+        help='DEM resolution of VRT file in meters',
         required=False,
         default=1
     )
 
     parser.add_argument(
         '-w', '--write-kwargs',
-        help='Write kwargs',
+        help='GDAL write options for tiles',
         type=dict,
         default=WRITE_KWARGS,
         required=False
@@ -425,7 +446,7 @@ if __name__ == '__main__':
 
     parser.add_argument(
         '-e', '--write-ext',
-        help='Write extension',
+        help='Write file extension for tiles',
         type=str,
         default='tif',
         required=False
@@ -433,7 +454,7 @@ if __name__ == '__main__':
 
     parser.add_argument(
         '-o', '--overwrite',
-        help='Force overwrite without prompt',
+        help='Overwrite existing tiles',
         default=False,
         action='store_true',
         required=False
@@ -441,7 +462,7 @@ if __name__ == '__main__':
 
     parser.add_argument(
         '-c', '--crs',
-        help='Target desired CRS',
+        help='Desired CRS',
         type=str,
         default=DEFAULT_FIM_PROJECTION_CRS,
         required=False
@@ -449,7 +470,7 @@ if __name__ == '__main__':
 
     parser.add_argument(
         '-n', '--ndv',
-        help='NDV',
+        help='Desired no data value for tiles',
         type=float,
         default=-999999,
         required=False
@@ -457,7 +478,7 @@ if __name__ == '__main__':
 
     parser.add_argument(
         '-v', '--ten-m-vrt',
-        help='Path to 10m VRT',
+        help='Path to existing 10m VRT file',
         type=str,
         default=TEN_M_VRT,
         required=False
@@ -465,7 +486,7 @@ if __name__ == '__main__':
 
     parser.add_argument(
         '-j', '--num-workers',
-        help='Number of workers',
+        help='Number of workers for dask client',
         type=int,
         default=NUM_WORKERS,
         required=False
@@ -473,7 +494,7 @@ if __name__ == '__main__':
 
     parser.add_argument(
         '-m', '--max-retries',
-        help='Max retries',
+        help='Max retries for each tile',
         type=int,
         default=MAX_RETRIES,
         required=False
