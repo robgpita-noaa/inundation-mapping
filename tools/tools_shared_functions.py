@@ -547,7 +547,7 @@ def get_stats_table_from_binary_rasters(
                 # does drop introduce nan???
                 # make nans 10
                 agreement_map_include.data = xr.where(
-                    agreement_map_include.data.isnull(), 10, agreement_map_include.data
+                    np.isnan(agreement_map.data), 10, agreement_map_include.data
                 )
                 
                 gc.collect()
