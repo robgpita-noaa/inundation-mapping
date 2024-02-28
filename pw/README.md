@@ -4,6 +4,8 @@ Efforts are underway to architect and parallelize the HUC8 level processing usin
 
 There are a few pieces that are necessary to have in place for the whole system to run smoothly. In terms of seeding the necessary input data in a Filesystem, this is dependent on the Cloud Service Provider being used. 
 
+**Please be advised that in using any of the `.sh` scripts in this directory, you must have the docker image named `fim:latest` available for use.**
+    This can be accomplished by using an AMI that pulls it, or you can build the container yourself within the compute node. 
 
 ## Prerequisite PW resources:
 
@@ -12,9 +14,9 @@ An EFS provisioned and accessible. (eg: fimtest or fimefs)
 
 Ephemeral Storage (Optional):
 
-	An AWS FSX for Lustre provisioned and accessible. (eg: fsx)
+An AWS FSX for Lustre provisioned and accessible. (eg: fsx)
 	
-    FSX can be set up as an ephemeral filesystem that may provide a faster platorm for the computations, but will not be used to persist the generated data. The FSX can be configured to mount an S3 Bucket. The S3 URI should match what was output as the bucket_name = “”, when provisioning the S3 bucket in the PW platform (not what is visible as the name in the PW UI.)
+FSX can be set up as an ephemeral filesystem that may provide a faster platorm for the computations, but will not be used to persist the generated data. The FSX can be configured to mount an S3 Bucket. The S3 URI should match what was output as the bucket_name = “”, when provisioning the S3 bucket in the PW platform (not what is visible as the name in the PW UI.)
 
 ## PW Cluster Configuration:
 Refer to auxillary documentation for cluster configuration, as this will change based on PW account (Test, Optimization) being used, as well as the Cloud Service Provider. 
@@ -24,7 +26,7 @@ Find your desired cluster under the HOME tab, and My Compute Resources.
 Click the power button.
 Please note that the power button is essentially a Terraform apply or Terraform destroy, depending on the state. For those not familiar with terraform, that means the resources is provisioned and de-provisioned, so all files and folders (not in the EFS drive) will not persist.
 
-Then you can click the <username>@<ip of cluster> to copy it to your clipboard:
+Then you can click the \<username>@\<ip of cluster> to copy it to your clipboard:
 
 ## Connecting to the Cluster Controller Node:
 
@@ -77,3 +79,4 @@ You can verify these two steps were done correctly in two ways:
 
     2.) The second is from viewing the amount of active nodes as viewed from the HOME tab in PW (unclick terminal Icon).
 
+From there, you can modify the docker run command in `slurm_single_fim_pipeline.sh` to suit your desired run.
