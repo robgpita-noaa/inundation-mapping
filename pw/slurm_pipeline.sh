@@ -3,8 +3,15 @@
 #####################################################################################################################
 ## Slurm implementation of fim_pipeline.sh 
 ##
+## This top level submits slurm_pre_processing.sh, slurm_process_unit_wb.sh, & slurm_post_processing.sh as sbatch 
+##      jobs.
+##
 ## How to execute:
-##      bash slurm_pipeline.sh /data/inputs/huc_lists/dev_small_test_1_huc.lst test_pipeline_wrapper
+##      bash slurm_pipeline.sh /data/inputs/huc_lists/dev_small_test_4_huc.lst test_pipeline_wrapper
+##
+## **Note**
+##      This slurm implementation has yet to scale beyond 4 HUC8s. Additional PW configurations and CSP availability
+##      concerns still need to be addressed. 
 ##
 ## For Slurm Job dependencies, see:
 ##      https://slurm.schedmd.com/sbatch.html#OPT_dependency
@@ -16,7 +23,8 @@ run_name=$2
 ## Exit if incorrect arguments (here we need to provide a huclist that is accessible to the docker container)
 if [ "${huc_list:0:5}" != "/data" ]
 then
-    printf "\nERROR: Provide a Huclist in format of /data/inputs/huc_lists, a single huc, or for multiple, space delimineted, in quotes, as the first parameter\n"
+    printf "\nERROR: Provide a Huclist in format of /data/inputs/huc_lists, a single huc, or, for multiple HUCS "
+    printf "use quotes and space delimited pattern as the first parameter\n"
     exit 1
 fi
 if [ "$2" = "" ]

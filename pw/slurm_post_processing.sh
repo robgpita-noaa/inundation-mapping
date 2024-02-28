@@ -13,8 +13,8 @@ job_array_id=$2
 
 printf "\n Job_array_id from slurm_post_processing.sh is $job_array_id \n"
 
-## Create a secondary Slurm script to wait for the job array to be submitted
-##  ($ used in script need to be escaped: \$)
+## Create a secondary Slurm script. This is required in order pass the $job_array_id variable, after it is available, 
+## once slurm_process_unit_wb.sh has been submitted
 sbatch <<EOF
 #!/bin/bash
 #SBATCH --job-name=slurm_post_processing
@@ -30,6 +30,6 @@ echo "Waited on slurm job array, argument passed to sbatch --dependency: \${SLUR
 # Allow ability to run docker as non-root user 
 sudo chmod 666 /var/run/docker.sock
 
-docker run --rm --name fim_post_processing  -v /efs/repo/inundation-mapping/:/foss_fim -v /efs/inputs/:/data/inputs -v /efs/outputs/:/outputs -v /efs/outputs_temp/:/fim_temp robgpita/fim:lidar_a3c2854 ./foss_fim/fim_post_processing.sh -n \${run_name} -j 46
+docker run --rm --name fim_post_processing  -v /efs/repo/inundation-mapping/:/foss_fim -v /efs/inputs/:/data/inputs -v /efs/outputs/:/outputs -v /efs/outputs_temp/:/fim_temp fim:latest ./foss_fim/fim_post_processing.sh -n \${run_name} -j 46
 
 EOF

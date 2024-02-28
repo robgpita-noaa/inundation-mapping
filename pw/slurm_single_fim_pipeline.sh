@@ -31,6 +31,6 @@ sudo chmod 666 /var/run/docker.sock
 RUN_NAME=${SLURM_JOB_NAME}
 
 # Spin up Docker container with correct mounts, and issue fim_pipeline.sh
-docker run --rm --name ${RUN_NAME} -v /efs/repo/inundation-mapping/:/foss_fim -v /efs/inputs/:/data/inputs -v /efs/outputs/:/outputs -v /efs/outputs_temp/:/fim_temp robgpita/fim:fim_4 ./foss_fim/fim_pipeline.sh -u 05030104 -n ${RUN_NAME} -jh 1 -jb 10 -o
+docker run --rm --name ${RUN_NAME} -v /efs/repo/inundation-mapping/:/foss_fim -v /efs/inputs/:/data/inputs -v /efs/outputs/:/outputs -v /efs/outputs_temp/:/fim_temp fim:latest ./foss_fim/fim_pipeline.sh -u 05030104 -n ${RUN_NAME} -jh 1 -jb 10 -o
 
 
