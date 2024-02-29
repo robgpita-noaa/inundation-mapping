@@ -6,6 +6,7 @@ import re
 import shutil
 import sys
 import traceback
+import gc
 
 import pandas as pd
 from inundate_mosaic_wrapper import produce_mosaicked_inundation
@@ -371,7 +372,8 @@ class Test_Case(Benchmark):
 
         # Create contingency rasters and stats
         fh.vprint("Begin creating contingency rasters and stats", verbose)
-        if os.path.isfile(predicted_raster_path):
+        if os.path.isfile(predicted_raster_path):            
+            gc.collect()
             compute_contingency_stats_from_rasters(
                 predicted_raster_path,
                 benchmark_rast,
@@ -380,6 +382,7 @@ class Test_Case(Benchmark):
                 stats_json=stats_json,
                 mask_dict=mask_dict_indiv,
             )
+            gc.collect()
         return
 
     @classmethod

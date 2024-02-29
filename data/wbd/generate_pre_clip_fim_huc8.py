@@ -50,7 +50,9 @@ load_dotenv(f'{projectDir}/config/params_template.env')
 DEFAULT_FIM_PROJECTION_CRS = os.getenv('DEFAULT_FIM_PROJECTION_CRS')
 inputsDir = os.getenv('inputsDir')
 input_WBD_gdb = os.getenv('input_WBD_gdb')
-input_DEM = os.getenv('input_DEM')
+input_DEM_seamless = os.getenv('input_DEM_seamless')
+input_DEM_tiles = os.getenv('input_DEM_tiles')
+input_DEM_source = os.getenv('input_DEM_source')
 input_DEM_domain = os.getenv('input_DEM_domain')
 input_nwm_lakes = os.getenv('input_nwm_lakes')
 input_nwm_catchments = os.getenv('input_nwm_catchments')
@@ -64,6 +66,17 @@ input_nld_levee_protected_areas = os.getenv('input_nld_levee_protected_areas')
 # Variables from config/params_template.env
 wbd_buffer = os.getenv('wbd_buffer')
 wbd_buffer_int = int(wbd_buffer)
+
+# specify input_DEM
+if input_DEM_source == 'seamless_10m':
+    input_DEM = input_DEM_seamless
+elif input_DEM_source == 'tiles_1m':
+    input_DEM = input_DEM_tiles
+else:
+    raise ValueError(
+        "The input_DEM_source variable in config/params_template.env is not set to a valid value. "
+        "Please check the variable and try again."
+    )
 
 
 def __setup_logger(outputs_dir):

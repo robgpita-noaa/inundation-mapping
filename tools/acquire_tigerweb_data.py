@@ -19,13 +19,14 @@ import geopandas as gpd
 
 from utils.shared_variables import DEFAULT_FIM_PROJECTION_CRS
 
+WRITE_KWARGS = {'index' : False}
 
 def Acquire_tigerweb_data(
     source : str,
     year : str = "2020",
     target_crs : str | int | CRS = DEFAULT_FIM_PROJECTION_CRS,
     write_path: str | Path | None = None,
-    write_kwargs: dict | None = None
+    write_kwargs: dict | None = WRITE_KWARGS
 ) -> gpd.GeoDataFrame:
     """
     Acquires US Census TIGERweb data.
@@ -49,7 +50,7 @@ def Acquire_tigerweb_data(
         The target coordinate reference system. Use None to not reproject the data.
     write_path : str or Path or None, default = None
         The path to write the data to. Set to None to not write the data.
-    write_kwargs : dict or None, default = None
+    write_kwargs : dict or None, default = WRITE_KWARGS
         Keyword arguments to pass to GeoDataFrame.to_file(). Only used if write_path is not None.
         
     References
