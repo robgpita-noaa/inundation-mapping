@@ -4,7 +4,7 @@ Efforts are underway to architect and parallelize the HUC8 level processing usin
 
 There are a few pieces that are necessary to have in place for the whole system to run smoothly. In terms of seeding the necessary input data in a Filesystem, this is dependent on the Cloud Service Provider being used. 
 
-**Please be advised that in using any of the `.sh` scripts in this directory, you must have the docker image named `fim:latest` available for use.**
+**Please be advised that in using any of the scripts in this directory, as is, you must have the docker image named `fim:latest` available for use.**
     This can be accomplished by using an AMI that pulls it, or you can build the container yourself within the compute node. 
 
 ## Prerequisite PW resources:
