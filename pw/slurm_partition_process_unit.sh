@@ -56,14 +56,11 @@ else
     done
 fi
 
-# # First Chunk
-# ${HUCS[@]:0:42}
-# # Second Chunk
-# ${HUCS[@]:42:42}
-# # Third Chunk
-# ${HUCS[@]:84:42}
-# # Fourth Chunk
-# ${HUCS[@]:126:43}
+
+## TODO:
+##    Test the ability to launch N array jobs representing each chunked_array_of_hucs_$i 
+##    accross the available compute partitions. This will involve moving & refactoring sbatch code 
+##    below into the two for loops above, or moving the sbatch array job into its own file.
 
 ## Create the Slurm script ($ used in script need to be escaped: \$)
 sbatch <<EOF
