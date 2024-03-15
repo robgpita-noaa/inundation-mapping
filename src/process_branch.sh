@@ -41,7 +41,7 @@ do
     elif [ $code -ne 0 ]; then
         echo
         err_exists=1
-        echo "***** An error has occured  *****"
+        echo "***** An error has occurred  *****"
         cp $branchLogFileName $outputDestDir/branch_errors
     fi
 done
