@@ -11,13 +11,16 @@
 ##          Arguments to fim_pipeline.sh at the end of the docker run command
 ##
 ##  Example:
-##      sbatch slurm_single_fim_pipeline.sh
+##      sbatch slurm_single_fim_pipeline.sh <run_name> <huc8>
 #####################################################################################################################
 
+RUN_NAME=$1
+HUC_NUMBER=$2
+
 ## The --job-name is transferred to the run_name (output directory)
-#SBATCH --job-name=slurm_single_fim_pipeline_test 
+#SBATCH --job-name=$RUN_NAME
 #SBATCH --output %x.out # %x is the job-name
-#SBATCH --partition=compute
+#SBATCH --partition=compute_1
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task 10 # Use this for threads/cores in single-node jobs.
 #SBATCH --time=06:00:00
@@ -28,9 +31,7 @@ sudo chmod 666 /var/run/docker.sock
 # Make temporary outputs directory if utilizing ephemeral FileSystem
 # mkdir -p /fsx/outputs_temp
 
-RUN_NAME=${SLURM_JOB_NAME}
-
 # Spin up Docker container with correct mounts, and issue fim_pipeline.sh
-docker run --rm --name ${RUN_NAME} -v /efs/repo/inundation-mapping/:/foss_fim -v /efs/inputs/:/data/inputs -v /efs/outputs/:/outputs -v /efs/outputs_temp/:/fim_temp fim:latest ./foss_fim/fim_pipeline.sh -u 05030104 -n ${RUN_NAME} -jh 1 -jb 10 -o
+docker run --rm --name ${RUN_NAME} -v /efs/repo/inundation-mapping/:/foss_fim -v /efs/inputs/:/data/inputs -v /efs/outputs/:/outputs -v /efs/outputs_temp/:/fim_temp fim:latest ./foss_fim/fim_pipeline.sh -u ${HUC_NUMBER} -n ${RUN_NAME} -jh 1 -jb 10 -o
 
 

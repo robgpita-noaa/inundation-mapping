@@ -19,7 +19,7 @@ sbatch <<EOF
 #!/bin/bash
 #SBATCH --job-name=placeholder
 #SBATCH --output %x_%a.out # %x is the job-name, %a is the Job array ID (index) number.
-#SBATCH --partition=compute
+#SBATCH --partition=compute_1
 ##SBATCH --ntasks-per-node 10 # Use for more than single-node jobs
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task 14 # Use this for cores in single-node jobs.

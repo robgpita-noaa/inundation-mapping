@@ -7,7 +7,7 @@
 ##      jobs.
 ##
 ## How to execute:
-##      bash slurm_pipeline.sh /data/inputs/huc_lists/dev_small_test_4_huc.lst test_pipeline_wrapper
+##      bash slurm_pipeline.sh -u /data/inputs/huc_lists/dev_small_test_4_huc.lst -n test_slurm_pipeline
 ##
 ## **Note**
 ##      This slurm implementation has yet to scale beyond 4 HUC8s. Additional PW configurations and CSP availability
@@ -58,7 +58,7 @@ usage()
                                     4 compute partitions. 
                                    3 arrays with 3 HUCS, and one array comprising the remaining HUC, totalling 4 arrays and 4 partitions.
       -o                : Overwrite outputs if they already exist.
-      -skipPost         : If this param is included, the post processing step will be skipped.
+      -s/--skipPost         : If this param is included, the post processing step will be skipped.
 
 
     Running 'slurm_pipeline.sh' is a quicker process than running all three scripts independently; however,
@@ -81,10 +81,6 @@ while [ "$1" != "" ]; do
         -n|--runName)
             shift
             runName=$1
-            ;;
-        -jh|--jobHucLimit)
-            shift
-            jobHucLimit=$1
             ;;
         -jb|--jobBranchLimit)
             shift
@@ -122,7 +118,6 @@ if [ "$runName" = "" ]; then
 fi
 
 # Default values
-if [ "$jobHucLimit" = "" ]; then jobHucLimit=1; fi
 if [ "$jobBranchLimit" = "" ]; then jobBranchLimit=1; fi
 if [ -z "$partitions" ]; then partitions=0; fi
 if [ -z "$overwrite" ]; then overwrite=0; fi
@@ -140,7 +135,7 @@ fi
 sed -i -e "s/placeholder/$runName/g" slurm_process_unit_wb.sh
 
 #####################################################################################################################
-## Replace /data/ in huc_list argument to what is local on Controller Node's FileSystem (eg /fsx or /fimefs) 
+## Replace /data/ in huc_list argument to what is local on Controller Node's FileSystem (eg /fsx, /fimefs, etc) 
 ## This depends on what was configured in cluster creation and what we provided to the 
 ## volume mount for the data directory 
 
@@ -157,16 +152,16 @@ relativeHucList=${hucList/data/efs}
 
 printf "\n Initiating fim_pre_processing job with a runName of $runName \n\t hucList: $hucList \n"
 
-SLURM_PRE_PROCESSING=$(sbatch --parsable --partition=pre-processing slurm_pre_processing.sh $hucList $runName)
+SLURM_PRE_PROCESSING=$(sbatch --parsable --partition=pre-processing slurm_pre_processing.sh $hucList $runName $jobBranchLimit )
 
 printf "\n Jobs submitted, see appropriate SLURM.out files in directory where this script was run for details."
 printf "\n\t Run squeue to view the job queue. \n\n"
 
-## TODO - create another partition with a small VM for this one, as it just creates the job array??
+## If there are 
 if [ $partitions -eq 0 ]; then
     SLURM_PROCESS_UNIT_WB=$(sbatch --dependency=afterok:$SLURM_PRE_PROCESSING --parsable slurm_process_unit_wb.sh ${relativeHucList})
 else
-    SLURM_PROCESS_UNIT_WB=$(sbatch --dependency=afterok:$SLURM_PRE_PROCESSING --parsable slurm_partition_process_unit.sh ${relativeHucList} ${partitions})
+    SLURM_PROCESS_UNIT_WB=$(sbatch --dependency=afterok:$SLURM_PRE_PROCESSING --parsable slurm_partition_process_unit.sh ${partitions} ${relativeHucList})
 fi
 
 printf "\n SLURM_PROCESS_UNIT_WB Submitted, Job ID is: $SLURM_PROCESS_UNIT_WB \n"
@@ -180,13 +175,12 @@ printf "\n SLURM_PROCESS_UNIT_JOB_ARRAY_ID is: $SLURM_PROCESS_UNIT_JOB_ARRAY_ID 
 sleep 300
 
 ## post-processing compute c5.24xlarge - 96vCPU -> 48 CPU -2 (fim code requirement) = -j 46
-if [ $skipPost -eq 1 ]; then
+if [ $skipPost -eq 0 ]; then
     bash slurm_post_processing.sh ${runName} ${SLURM_PROCESS_UNIT_JOB_ARRAY_ID}
+    printf "\n slurm_post_processing.sh submitted, this depends on all of the array jobs completing. \n"
 fi
 
-printf "\n slurm_post_processing.sh submitted, this depends on all of the array jobs completing. \n"
 #####################################################################################################################
 
 ## Revert runName arg back to placeholder
 sed -i -e "s/$runName/placeholder/g" slurm_process_unit_wb.sh
-

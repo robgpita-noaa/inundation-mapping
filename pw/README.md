@@ -4,13 +4,13 @@ Efforts are underway to architect and parallelize the HUC8 level processing usin
 
 There are a few pieces that are necessary to have in place for the whole system to run smoothly. In terms of seeding the necessary input data in a Filesystem, this is dependent on the Cloud Service Provider being used. 
 
-**Please be advised that in using any of the scripts in this directory, as is, you must have the docker image named `fim:latest` available for use.**
-    This can be accomplished by using an AMI that pulls it, or you can build the container yourself within the compute node. 
+**Please be advised that in using any of the scripts as is in this directory, you must have the docker image named `fim:latest` available for use.**
+    This can be accomplished by selecting a PW cloud snapshot (AMI) for the 'Elastic Image' field on your cluster that pulls it, or you can build the docker image yourself within the compute node (not recommended). 
 
 ## Prerequisite PW resources:
 
-An EFS provisioned and accessible. (eg: fimtest or fimefs)
-    The EFS is used for the output path - where the FIM HAND Data will be copied to after computations are completed.
+An PW 'Storage' provisioned and accessible. (eg: fimtest or fimefs)
+    The 'Storage' is used for input data, and the output path - where the FIM HAND Data will be copied to after computations are completed. 
 
 Ephemeral Storage (Optional):
 
@@ -24,7 +24,7 @@ Refer to auxillary documentation for cluster configuration, as this will change 
 ## Start the Cluster:
 Find your desired cluster under the HOME tab, and My Compute Resources.
 Click the power button.
-Please note that the power button is essentially a Terraform apply or Terraform destroy, depending on the state. For those not familiar with terraform, that means the resources is provisioned and de-provisioned, so all files and folders (not in the EFS drive) will not persist.
+Please note that the power button is essentially a Terraform apply or Terraform destroy, depending on the state. For those not familiar with Terraform, that means the resource is provisioned and de-provisioned, so all files and folders (not located on the storage) will not persist. 
 
 Then you can click the \<username>@\<ip of cluster> to copy it to your clipboard:
 
@@ -43,19 +43,34 @@ ls /efs
 df -h 
 ```
 
-## Parallel Processing using schedule from Head Node
+## Parallel Processing using slurm scheduler from Head Node
 
-Here is an example of calling slurm_pipeline.sh.
+### How to execute `slurm_pipeline.sh`
+Calling `slurm_pipeline.sh` is the easiest way to run the model and produce HAND FIM datasets for larger domains using slurm on Parallel Works. It will call the necessary underlying scripts (pre, process unit, post), and takes command line arguments directly. It can be run from the controller node, which streamlines the [steps](#Connecting-to-a-Compute-Node) necessary if running interactively. 
+
+If provided, the `-p` or `--partition` argument splits the larger huc list into chunks, which are turned into `p` * array jobs. Each chunk of hucs will be in a seperate partition, and those partitions are in different Availability Zones. This mitigates requesting too many resources in any one AZ.
+
+There are a couple of important considerations that need to be understood in order to effectively use this script. 
+Depending on the domain size, it may be advised to use `slurm_single_fim_pipeline.sh`, see below for additional details. 
+If your domain size (amount of hucs in the `huc_list.lst` file) is roughly above 10, using `slurm_pipeline.sh` is the preferred method. 
+
+
+Here is an example, see the `usage` function within the script for more options/information:
 
 ```bash
-bash slurm_pipeline.sh /data/inputs/huc_lists/dev_small_test_4_huc.lst test_pipeline_wrapper
+bash slurm_pipeline.sh -u /data/inputs/huc_lists/dev_small_test_4_huc.lst -n test_slurm_pipeline
 ```
 
-Please see the comments in this script, as well as the other `.sh` files to gain awareness of the procedue used. 
+Please see the comments in this script, as well as the other `.sh` files to gain awareness of the procedues used. 
 
-## Serial Processing using interactive compute node
+## Serial Processing 
 
-### Connecting to the Cluster Compute Node:
+### Using slurm from the controller node
+
+`slurm_single_fim_pipeline.sh` should be used to issue smaller domain (a single up to a handful of HUC8s) runs on one compute node. 
+
+
+### Connecting to a Compute Node:
 The Controller node would traditionally kick of Slurm Jobs, but in the case of just running on one Compute Node, we need to spin up an interactive Compute Node to issue the script (run on a docker container) that will generate the datasets.
 
 Allocate an interactive compute node
@@ -79,4 +94,4 @@ You can verify these two steps were done correctly in two ways:
 
     2.) The second is from viewing the amount of active nodes as viewed from the HOME tab in PW (unclick terminal Icon).
 
-From there, you can modify the docker run command in `slurm_single_fim_pipeline.sh` to suit your desired run.
+From there, you can modify the docker run command (as well as `fim_pipeline.sh` command) to suit your desired run. 
