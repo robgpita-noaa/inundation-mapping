@@ -156,16 +156,16 @@ SLURM_PRE_PROCESSING=$(sbatch --parsable --partition=pre-processing slurm_pre_pr
 printf "\n Jobs submitted, see appropriate SLURM.out files in directory where this script was run for details."
 printf "\n\t Run squeue to view the job queue. \n"
 
-## TODO -> create another partition to process the array jobs and specify it below --partition=process_unit_array_partition
+## TODO -> create another partition to process the array jobs and specify it below --partition=process_unit_array
 
 ## If there is partition argument issue the correct script
 if [ $partitions -eq 0 ]; then
-    SLURM_PROCESS_UNIT_WB=$(sbatch --dependency=afterok:$SLURM_PRE_PROCESSING --parsable slurm_process_unit_wb.sh ${relativeHucList})
+    SLURM_PROCESS_UNIT_WB=$(sbatch --partition=process_unit_array --dependency=afterok:$SLURM_PRE_PROCESSING --parsable slurm_process_unit_wb.sh ${relativeHucList})
     printf "\n SLURM_PROCESS_UNIT_WB Submitted, Job ID is: $SLURM_PROCESS_UNIT_WB \n"
     SLURM_PROCESS_UNIT_JOB_ARRAY_ID=$(($SLURM_PROCESS_UNIT_WB + 1))
     printf "\n SLURM_PROCESS_UNIT_JOB_ARRAY_ID is: $SLURM_PROCESS_UNIT_JOB_ARRAY_ID \n"
 else
-    SLURM_PROCESS_UNIT_WB_ARRAY=$(sbatch --dependency=afterok:$SLURM_PRE_PROCESSING --parsable slurm_partition_process_unit.sh ${partitions} ${runName} ${relativeHucList})
+    SLURM_PROCESS_UNIT_WB_ARRAY=$(sbatch --partition=process_unit_array --dependency=afterok:$SLURM_PRE_PROCESSING --parsable slurm_partition_process_unit.sh ${partitions} ${runName} ${relativeHucList})
     printf "\n SLURM_PROCESS_UNIT_WB_ARRAY Submitted, Job ID is: $SLURM_PROCESS_UNIT_WB_ARRAY \n"
     SLURM_PROCESS_UNIT_JOB_ARRAY_IDS=($SLURM_PROCESS_UNIT_WB_ARRAY:)
     for ((i=0; i<partitions; i++)); do

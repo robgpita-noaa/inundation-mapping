@@ -43,28 +43,23 @@ sbatch <<EOF
 sudo chmod 666 /var/run/docker.sock
 
 echo "huc_array: ${huc_array[@]}"
-echo "huc_array[0]: ${huc_array[0]}"
-echo "huc_array[1]: ${huc_array[1]}"
-echo "huc_array[\$SLURM_ARRAY_TASK_ID]: ${huc_array[\${SLURM_ARRAY_TASK_ID}]}"
 
+# Reassign variables
+HUCS=(${huc_array[@]})
+RUN_NAME=${runName}
 
-## Get each individual HUC
-# HUC=${huc_array[\$SLURM_ARRAY_TASK_ID]}
-# echo "HUC (w/o {})-> \${HUC}"
-HUC=${huc_array[\${SLURM_ARRAY_TASK_ID}]}
-echo "HUC (w {})-> \${HUC2}"
+HUC=\${HUCS[\$SLURM_ARRAY_TASK_ID]}
 
 echo "Array job number: \${SLURM_ARRAY_TASK_ID}"
-echo "Running fim_process_unit_wb.sh on: ${HUC}"
 echo "Running fim_process_unit_wb.sh on: \${HUC}"
-echo "runName is \${runName}"
+echo "RUN_NAME is \${RUN_NAME}"
 echo "Container name is \${HUC}"
 
-# docker run --rm --name \${HUC} \
-# -v /efs/repo/inundation-mapping/:/foss_fim \
-# -v /efs/inputs/:/data/inputs \
-# -v /efs/outputs/:/outputs \
-# -v /efs/outputs_temp/:/fim_temp fim:latest \
-# mkdir -p /outputs/\${runName}/\${HUC}
+docker run --rm --name \${HUC} \
+-v /efs/repo/inundation-mapping/:/foss_fim \
+-v /efs/inputs/:/data/inputs \
+-v /efs/outputs/:/outputs \
+-v /efs/outputs_temp/:/fim_temp fim:latest \
+mkdir -p /outputs/\${RUN_NAME}/\${HUC}
 
 EOF
