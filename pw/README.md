@@ -46,9 +46,16 @@ df -h
 ## Parallel Processing using slurm scheduler from Head Node
 
 ### How to execute `slurm_pipeline.sh`
-Calling `slurm_pipeline.sh` is the easiest way to run the model and produce HAND FIM datasets for larger domains using slurm on Parallel Works. It will call the necessary underlying scripts (pre, process unit, post), and takes command line arguments directly. It can be run from the controller node, which streamlines the [steps](#Connecting-to-a-Compute-Node) necessary if running interactively. 
+Calling `slurm_pipeline.sh` is the easiest way to run the model and produce HAND FIM datasets for larger domains using slurm on Parallel Works. It will call the necessary underlying scripts (pre, process unit, post), and takes command line arguments directly. It can be run from the controller node, which allows us to skip [steps](#Connecting-to-a-Compute-Node) if running interactively. 
 
-If provided, the `-p` or `--partition` argument splits the larger huc list into chunks, which are turned into `p` * array jobs. Each chunk of hucs will be in a seperate partition, and those partitions are in different Availability Zones. This mitigates requesting too many resources in any one AZ.
+If provided, the `-p` or `--partition` argument splits the larger huc list into chunks, which are turned into `p` * array jobs. Each chunk of hucs will be in a seperate partition, and those partitions are in different Availability Zones. Be sure to do the math and ensure you have enough compute nodes available in each partition based on the amount of HUC8s submitted. Some general rules:
+
+`-p <n>` should divide the huc list into 'chunks' less than or equal to the `Max Nodes` value provided per partition (specified in the Compute Cluster Definition) 
+
+`-p <n>` should evenly divide the amount of hucs (or give the least amount of remaining hucs)
+
+
+This mitigates requesting too many resources in any one AZ.
 
 There are a couple of important considerations that need to be understood in order to effectively use this script. 
 Depending on the domain size, it may be advised to use `slurm_single_fim_pipeline.sh`, see below for additional details. 

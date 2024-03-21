@@ -10,7 +10,8 @@
 
 huc_list=$1
 run_name=$2
-jobBranchLimit=$4
+jobBranchLimit=$3
+overwrite=$4
 
 #SBATCH --job-name=slurm_pre_processing
 #SBATCH --output %x.out # %x is the ^^ slurm job-name
@@ -22,4 +23,18 @@ jobBranchLimit=$4
 ## Allow ability to run docker as non-root user 
 sudo chmod 666 /var/run/docker.sock
 
-docker run --rm --name fim_pre_processing -v /efs/repo/inundation-mapping/:/foss_fim -v /efs/inputs/:/data/inputs -v /efs/outputs/:/outputs -v /efs/outputs_temp/:/fim_temp fim:latest ./foss_fim/fim_pre_processing.sh -u "${huc_list}" -n "${run_name}" -jb "${jobBranchLimit}"
+if [ $overwrite -eq 0 ] ;then
+    docker run --rm --name fim_pre_processing \
+    -v /efs/repo/inundation-mapping/:/foss_fim \
+    -v /efs/inputs/:/data/inputs \
+    -v /efs/outputs/:/outputs \
+    -v /efs/outputs_temp/:/fim_temp fim:latest \
+    ./foss_fim/fim_pre_processing.sh -u "${huc_list}" -n "${run_name}" -jb "${jobBranchLimit}" 
+else
+    docker run --rm --name fim_pre_processing \
+    -v /efs/repo/inundation-mapping/:/foss_fim \
+    -v /efs/inputs/:/data/inputs \
+    -v /efs/outputs/:/outputs \
+    -v /efs/outputs_temp/:/fim_temp fim:latest \
+    ./foss_fim/fim_pre_processing.sh -u "${huc_list}" -n "${run_name}" -jb "${jobBranchLimit}" -o
+fi

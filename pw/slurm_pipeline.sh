@@ -17,7 +17,6 @@
 ##      https://slurm.schedmd.com/sbatch.html#OPT_dependency
 #####################################################################################################################
 
-
 :
 usage()
 {
@@ -131,7 +130,7 @@ if [ "${hucList:0:5}" != "/data" ]; then
 fi
 
 #####################################################################################################################
-## Replace runName in slurm_process_unit.sh with input argument ($2)
+## Replace runName in slurm_process_unit.sh with $runName argument
 sed -i -e "s/placeholder/$runName/g" slurm_process_unit_wb.sh
 
 #####################################################################################################################
@@ -152,35 +151,50 @@ relativeHucList=${hucList/data/efs}
 
 printf "\n Initiating fim_pre_processing job with a runName of $runName \n\t hucList: $hucList \n"
 
-SLURM_PRE_PROCESSING=$(sbatch --parsable --partition=pre-processing slurm_pre_processing.sh $hucList $runName $jobBranchLimit )
+SLURM_PRE_PROCESSING=$(sbatch --parsable --partition=pre-processing slurm_pre_processing.sh $hucList $runName $jobBranchLimit $overwrite)
 
 printf "\n Jobs submitted, see appropriate SLURM.out files in directory where this script was run for details."
-printf "\n\t Run squeue to view the job queue. \n\n"
+printf "\n\t Run squeue to view the job queue. \n"
 
-## If there are 
+## TODO -> create another partition to process the array jobs and specify it below --partition=process_unit_array_partition
+
+## If there is partition argument issue the correct script
 if [ $partitions -eq 0 ]; then
     SLURM_PROCESS_UNIT_WB=$(sbatch --dependency=afterok:$SLURM_PRE_PROCESSING --parsable slurm_process_unit_wb.sh ${relativeHucList})
+    printf "\n SLURM_PROCESS_UNIT_WB Submitted, Job ID is: $SLURM_PROCESS_UNIT_WB \n"
+    SLURM_PROCESS_UNIT_JOB_ARRAY_ID=$(($SLURM_PROCESS_UNIT_WB + 1))
+    printf "\n SLURM_PROCESS_UNIT_JOB_ARRAY_ID is: $SLURM_PROCESS_UNIT_JOB_ARRAY_ID \n"
 else
-    SLURM_PROCESS_UNIT_WB=$(sbatch --dependency=afterok:$SLURM_PRE_PROCESSING --parsable slurm_partition_process_unit.sh ${partitions} ${relativeHucList})
+    SLURM_PROCESS_UNIT_WB_ARRAY=$(sbatch --dependency=afterok:$SLURM_PRE_PROCESSING --parsable slurm_partition_process_unit.sh ${partitions} ${runName} ${relativeHucList})
+    printf "\n SLURM_PROCESS_UNIT_WB_ARRAY Submitted, Job ID is: $SLURM_PROCESS_UNIT_WB_ARRAY \n"
+    SLURM_PROCESS_UNIT_JOB_ARRAY_IDS=($SLURM_PROCESS_UNIT_WB_ARRAY:)
+    for ((i=0; i<partitions; i++)); do
+        SLURM_PROCESS_UNIT_JOB_ARRAY_IDS+=$(($SLURM_PROCESS_UNIT_WB_ARRAY + $i + 1))
+        if [ $i -lt $(( $partitions - 1 )) ];then
+            SLURM_PROCESS_UNIT_JOB_ARRAY_IDS+=":"
+        fi
+    done
 fi
 
-printf "\n SLURM_PROCESS_UNIT_WB Submitted, Job ID is: $SLURM_PROCESS_UNIT_WB \n"
+## TODO:  Handle multiple slurm jobs submitting arrays - include a while loop that waits until all jobs are done before issuing?
 
-SLURM_PROCESS_UNIT_JOB_ARRAY_ID=$(($SLURM_PROCESS_UNIT_WB + 1))
-
-printf "\n SLURM_PROCESS_UNIT_JOB_ARRAY_ID is: $SLURM_PROCESS_UNIT_JOB_ARRAY_ID \n"
 
 ## Wait about 5 minutes to let the pre processing complete, and scheduler submission of the array job.
 ## There are no "futures" in slurm. The job id passed to --dependency must precede the current job id.
-sleep 300
+# sleep 300
 
 ## post-processing compute c5.24xlarge - 96vCPU -> 48 CPU -2 (fim code requirement) = -j 46
-if [ $skipPost -eq 0 ]; then
+if [ $skipPost -eq 0 ] && [ $partitions -eq 0 ]; then
     bash slurm_post_processing.sh ${runName} ${SLURM_PROCESS_UNIT_JOB_ARRAY_ID}
     printf "\n slurm_post_processing.sh submitted, this depends on all of the array jobs completing. \n"
+elif [ $skipPost -eq 0 ] && [ $partitions -ne 0 ];then 
+    bash slurm_post_processing.sh ${runName} ${SLURM_PROCESS_UNIT_JOB_ARRAY_IDS}
+    printf "\n slurm_post_processing.sh submitted, this depends on all of the array jobs completing. \n"
+else
+    printf "\n slurm_post_processing.sh skipeed, please remember to run the post processing step after all HUCs have completed. \n"
 fi
 
 #####################################################################################################################
 
 ## Revert runName arg back to placeholder
-sed -i -e "s/$runName/placeholder/g" slurm_process_unit_wb.sh
+sed -i -e "s/$runName/placeholder/g" slurm_process_unit_wb.sh 
