@@ -1,7 +1,6 @@
 #!/bin/bash
 
 #####################################################################################################################
-##      This script is a work in progress. 
 ##
 ## Slurm wrapper of fim_process_unit_wb.sh
 ## Passed a huc list, this script will parallelize the submission of sbatch jobs to the scheduler
@@ -22,9 +21,6 @@ partitions=$1
 ## Set the runName
 runName=$2
 
-## Read number of lines in file supplied as argument
-num_lines=$(wc -l $3 | awk '{print $1}')
-
 ## Get all HUCS into one array
 readarray -t HUCS < $3
 
@@ -32,8 +28,8 @@ readarray -t HUCS < $3
 chunkSize=$(( ${#HUCS[@]} / partitions ))
 remainder=$(( ${#HUCS[@]} % partitions ))
 
-echo "chunkSize (hucs per chunk) -> ${chunkSize}"
-echo "remainder -> ${remainder}" 
+printf "chunkSize (hucs per chunk) -> ${chunkSize} \n"
+printf "remainder -> ${remainder} \n" 
 
 ## Create the subsets arrays of hucs based on amount of partitions
 for ((i=0; i<partitions; i++)); do
@@ -51,12 +47,10 @@ fi
 ## Depending on the remainder, iterate over all chunked arrays
 if [ $remainder -gt 0 ]; then
     for ((i=0; i<=partitions; i++)); do
-        eval "echo chunked_array_of_hucs_$i: \${chunked_array_of_hucs_$i[*]}"
         eval "./process_unit_wb_array.sh -p \$i -n \$runName -u \${chunked_array_of_hucs_$i[*]}"
     done
 else 
     for ((i=0; i<partitions; i++)); do
-        eval "echo chunked_array_of_hucs_$i: \${chunked_array_of_hucs_$i[*]}"
         eval "./process_unit_wb_array.sh -p \$i -n \$runName -u \${chunked_array_of_hucs_$i[*]}"
     done
 fi

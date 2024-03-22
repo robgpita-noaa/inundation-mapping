@@ -30,6 +30,13 @@ echo "Waited on slurm job array, argument passed to sbatch --dependency: \${SLUR
 ## Allow ability to run docker as non-root user 
 sudo chmod 666 /var/run/docker.sock
 
-docker run --rm --name fim_post_processing  -v /efs/repo/inundation-mapping/:/foss_fim -v /efs/inputs/:/data/inputs -v /efs/outputs/:/outputs -v /efs/outputs_temp/:/fim_temp fim:latest ./foss_fim/fim_post_processing.sh -n \${run_name} -j 46
+RUN_NAME=${run_name}
+
+docker run --rm --name fim_post_processing  \
+-v /efs/repo/inundation-mapping/:/foss_fim \
+-v /efs/inputs/:/data/inputs \
+-v /efs/outputs/:/outputs \
+-v /efs/outputs_temp/:/fim_temp fim:latest \
+./foss_fim/fim_post_processing.sh -n \${RUN_NAME} -j 46
 
 EOF

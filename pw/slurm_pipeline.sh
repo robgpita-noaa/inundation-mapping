@@ -3,7 +3,7 @@
 #####################################################################################################################
 ## Slurm implementation of fim_pipeline.sh 
 ##
-## This top level submits slurm_pre_processing.sh, slurm_process_unit_wb.sh, & slurm_post_processing.sh as sbatch 
+## This top level submits slurm_pre_processing.sh, slurm_process_unit_wb.sh/process_unit_wb_array.sh, & slurm_post_processing.sh as sbatch 
 ##      jobs.
 ##
 ## How to execute:
@@ -134,11 +134,17 @@ fi
 sed -i -e "s/placeholder/$runName/g" slurm_process_unit_wb.sh
 
 #####################################################################################################################
-## Replace /data/ in huc_list argument to what is local on Controller Node's FileSystem (eg /fsx, /fimefs, etc) 
-## This depends on what was configured in cluster creation and what we provided to the 
-## volume mount for the data directory 
+## Replace /data/ in huc_list argument to what is provided as the Cluster's Mount Point (eg /fsx, /fimefs, etc) 
+## This depends on what was configured in cluster creation 
+## Replace </efs> below if using a different Mount Point 
 
 relativeHucList=${hucList/data/efs}
+
+## Read number of lines (hucs) from huclist 
+num_hucs=$(wc -l $relativeHucList | awk '{print $1}')
+
+## Set the remainder variable. This is needed in order to appropriately set $SLURM_PROCESS_UNIT_JOB_ARRAY_IDS
+remainder=$(( num_hucs % partitions ))
 
 #####################################################################################################################
 ## Split up the processing into 3 seperate logical processing steps (pre, compute, post)
@@ -146,55 +152,95 @@ relativeHucList=${hucList/data/efs}
 ## We are making use of the sbatch --dependency option to wait for each step to finish before moving on to the next one 
 
 ## The SLURM_PRE_PROCESSING job sets up the folder structure and environment variables
-## The SLURM_PROCESS_UNIT_WB job is an array job, which parallelizes the HUC8 level processing
+## The PROCESS_UNIT_WB_ARRAY job is an array job, which parallelizes the HUC8 level processing
 ## The post processing job runs the post processing steps (modifies rating curves, etc)
+#####################################################################################################################
 
-printf "\n Initiating fim_pre_processing job with a runName of $runName \n\t hucList: $hucList \n"
+printf "\n Initiating fim_pre_processing job with a runName of: $runName \n\t & hucList: $hucList \n"
 
 SLURM_PRE_PROCESSING=$(sbatch --parsable --partition=pre-processing slurm_pre_processing.sh $hucList $runName $jobBranchLimit $overwrite)
 
-printf "\n Jobs submitted, see appropriate SLURM.out files in directory where this script was run for details."
-printf "\n\t Run squeue to view the job queue. \n"
+#####################################################################################################################
+## Parallelization of HUC Processing
 
-## TODO -> create another partition to process the array jobs and specify it below --partition=process_unit_array
-
-## If there is partition argument issue the correct script
+## Depending on if the partition argument is provided, issue the appropriate script
 if [ $partitions -eq 0 ]; then
-    SLURM_PROCESS_UNIT_WB=$(sbatch --partition=process_unit_array --dependency=afterok:$SLURM_PRE_PROCESSING --parsable slurm_process_unit_wb.sh ${relativeHucList})
-    printf "\n SLURM_PROCESS_UNIT_WB Submitted, Job ID is: $SLURM_PROCESS_UNIT_WB \n"
-    SLURM_PROCESS_UNIT_JOB_ARRAY_ID=$(($SLURM_PROCESS_UNIT_WB + 1))
+    PROCESS_UNIT_WB_ARRAY=$(sbatch --partition=process_unit_array --dependency=afterok:$SLURM_PRE_PROCESSING --parsable slurm_process_unit_wb.sh ${relativeHucList})
+    printf "\n PROCESS_UNIT_WB_ARRAY Submitted, Job ID is: $PROCESS_UNIT_WB_ARRAY \n"
+    SLURM_PROCESS_UNIT_JOB_ARRAY_ID=$(($PROCESS_UNIT_WB_ARRAY + 1))
     printf "\n SLURM_PROCESS_UNIT_JOB_ARRAY_ID is: $SLURM_PROCESS_UNIT_JOB_ARRAY_ID \n"
 else
-    SLURM_PROCESS_UNIT_WB_ARRAY=$(sbatch --partition=process_unit_array --dependency=afterok:$SLURM_PRE_PROCESSING --parsable slurm_partition_process_unit.sh ${partitions} ${runName} ${relativeHucList})
-    printf "\n SLURM_PROCESS_UNIT_WB_ARRAY Submitted, Job ID is: $SLURM_PROCESS_UNIT_WB_ARRAY \n"
-    SLURM_PROCESS_UNIT_JOB_ARRAY_IDS=($SLURM_PROCESS_UNIT_WB_ARRAY:)
-    for ((i=0; i<partitions; i++)); do
-        SLURM_PROCESS_UNIT_JOB_ARRAY_IDS+=$(($SLURM_PROCESS_UNIT_WB_ARRAY + $i + 1))
-        if [ $i -lt $(( $partitions - 1 )) ];then
-            SLURM_PROCESS_UNIT_JOB_ARRAY_IDS+=":"
-        fi
-    done
+    PROCESS_UNIT_WB_ARRAY=$(sbatch --partition=process_unit_array --dependency=afterok:$SLURM_PRE_PROCESSING --parsable slurm_partition_process_unit.sh ${partitions} ${runName} ${relativeHucList})
+    printf "\n PROCESS_UNIT_WB_ARRAY Submitted, Job ID is: $PROCESS_UNIT_WB_ARRAY \n"
+    SLURM_PROCESS_UNIT_JOB_ARRAY_IDS=($PROCESS_UNIT_WB_ARRAY:)
+    if [ $remainder -ne 0 ]; then
+        for ((i=0; i<=partitions; i++)); do
+            SLURM_PROCESS_UNIT_JOB_ARRAY_IDS+=$(($PROCESS_UNIT_WB_ARRAY + $i + 1))
+            if [ $i -lt $(( $partitions )) ]; then
+                SLURM_PROCESS_UNIT_JOB_ARRAY_IDS+=":"
+            fi
+        done
+    else
+        for ((i=0; i<partitions; i++)); do
+            SLURM_PROCESS_UNIT_JOB_ARRAY_IDS+=$(($PROCESS_UNIT_WB_ARRAY + $i + 1))
+            if [ $i -lt $(( $partitions - 1 )) ]; then
+                SLURM_PROCESS_UNIT_JOB_ARRAY_IDS+=":"
+            fi
+        done
+    fi
+    printf "\n SLURM_PROCESS_UNIT_JOB_ARRAY_IDS (job dependency string that will be passed to post_processing): ${SLURM_PROCESS_UNIT_JOB_ARRAY_IDS} \n"
 fi
 
-## TODO:  Handle multiple slurm jobs submitting arrays - include a while loop that waits until all jobs are done before issuing?
+#####################################################################################################################
+# Wait for 30 seconds for the inital jobs (SLURM_PRE_PROCESSING & PROCESS_UNIT_WB_ARRAY) to be submitted
 
+sleep 30 
 
-## Wait about 5 minutes to let the pre processing complete, and scheduler submission of the array job.
+#####################################################################################################################
+## Wait for the Array job submission to complete.
 ## There are no "futures" in slurm. The job id passed to --dependency must precede the current job id.
-# sleep 300
 
-## post-processing compute c5.24xlarge - 96vCPU -> 48 CPU -2 (fim code requirement) = -j 46
+## PROCESS_UNIT_WB_ARRAY will be submitted, but it will be in the PD state initially, due to its dependency on
+## SLURM_PRE_PROCESSING. Therefore, we are not concerned with SLURM_PRE_PROCESSING, but we do need to wait on PROCESS_UNIT_WB_ARRAY.
+
+while true; do
+    job_status=$(squeue -j $PROCESS_UNIT_WB_ARRAY -o %t | tail -n 1)
+    if [[ $job_status == "PD" ]] || [[ $job_status == "CF" ]]; then
+        echo "Job $PROCESS_UNIT_WB_ARRAY is a pending or configuring state : ($job_status)."
+        sleep 60 # Wait for 60 seconds before checking again
+    elif [[ $job_status == "R" ]] || [[ $job_status == "CD" ]] || [[ $job_status == "CG" ]] || [[ $job_status == "ST" ]]; then
+        echo "Job $PROCESS_UNIT_WB_ARRAY is either in a running, completed, or stopped state: ($job_status)."
+        sleep 60 # Wait for 60 seconds for slurm to associate the job array id/ids
+        break
+    else
+        echo "Job $PROCESS_UNIT_WB_ARRAY is in an unaccounted for state: $job_status"
+        echo "Please cancel this job by executing: scancel $PROCESS_UNIT_WB_ARRAY"
+        echo "See https://slurm.schedmd.com/squeue.html#SECTION_JOB-STATE-CODES "
+        exit 1
+    fi
+
+done
+
+#####################################################################################################################
+## post-processing 
+## - compute c5.24xlarge - 96vCPU -> 48 CPU -2 (fim code requirement) = -j 46
+
 if [ $skipPost -eq 0 ] && [ $partitions -eq 0 ]; then
-    bash slurm_post_processing.sh ${runName} ${SLURM_PROCESS_UNIT_JOB_ARRAY_ID}
+    ./slurm_post_processing.sh ${runName} ${SLURM_PROCESS_UNIT_JOB_ARRAY_ID}
     printf "\n slurm_post_processing.sh submitted, this depends on all of the array jobs completing. \n"
 elif [ $skipPost -eq 0 ] && [ $partitions -ne 0 ];then 
-    bash slurm_post_processing.sh ${runName} ${SLURM_PROCESS_UNIT_JOB_ARRAY_IDS}
+    ./slurm_post_processing.sh ${runName} ${SLURM_PROCESS_UNIT_JOB_ARRAY_IDS}
     printf "\n slurm_post_processing.sh submitted, this depends on all of the array jobs completing. \n"
 else
-    printf "\n slurm_post_processing.sh skipeed, please remember to run the post processing step after all HUCs have completed. \n"
+    printf "\n slurm_post_processing.sh skipeed, please remember to run the post processing step after all HUCs have finished processing. \n"
 fi
 
 #####################################################################################################################
 
 ## Revert runName arg back to placeholder
 sed -i -e "s/$runName/placeholder/g" slurm_process_unit_wb.sh 
+
+#####################################################################################################################
+
+printf "\n Jobs submitted, see appropriate SLURM.out files in directory where this script was run for details."
+printf "\n\t Run squeue to view the job queue. \n\n"

@@ -20,17 +20,16 @@ while [ "$1" != "" ]; do
     shift
 done
 
-echo "partition: $partition " 
+echo
+echo "partition: compute_$partition " 
 echo "huc_array: ${huc_array[@]}"
-echo "huc_array length: ${#huc_array[@]}"
-
-## docker run --rm --name \${HUC} -v /efs/repo/inundation-mapping/:/foss_fim -v /efs/inputs/:/data/inputs -v /efs/outputs/:/outputs -v /efs/outputs_temp/:/fim_temp fim:latest ./foss_fim/fim_process_unit_wb.sh \${runName} \${HUC}
+echo 
 
 ## Create the Slurm script ($ used in script need to be escaped: \$)
 sbatch <<EOF
 #!/bin/bash
 
-#SBATCH --job-name="${runName}${partition}"
+#SBATCH --job-name="${runName}_${partition}"
 #SBATCH --output %x_%a.out # %x is the job-name, %a is the Job array ID (index) number.
 #SBATCH --partition=compute_$partition
 #SBATCH --ntasks=1
@@ -41,8 +40,6 @@ sbatch <<EOF
 
 ## Allow ability to run docker as non-root user 
 sudo chmod 666 /var/run/docker.sock
-
-echo "huc_array: ${huc_array[@]}"
 
 # Reassign variables
 HUCS=(${huc_array[@]})
@@ -60,6 +57,6 @@ docker run --rm --name \${HUC} \
 -v /efs/inputs/:/data/inputs \
 -v /efs/outputs/:/outputs \
 -v /efs/outputs_temp/:/fim_temp fim:latest \
-mkdir -p /outputs/\${RUN_NAME}/\${HUC}
+./foss_fim/fim_process_unit_wb.sh \${RUN_NAME} \${HUC}
 
 EOF
