@@ -1,11 +1,14 @@
 # FIM HAND Dataset Generation on PW 
 ### Intro:
-Efforts are underway to architect and parallelize the HUC8 level processing using a traditional HPC workflow (Slurm Scheduler to many compute nodes) to maximize resources available, as well as decrease the time to solution.
 
-There are a few pieces that are necessary to have in place for the whole system to run smoothly. In terms of seeding the necessary input data in a Filesystem, this is dependent on the Cloud Service Provider being used. 
+This directory contains the requisite scripts to use a slurm scheduler to generate HAND FIM Datasets using the existing scriptss contained within the larger repository. At the time of writting, these slurm scripts are configured to run on the Parallel Works Cloud HPC environment. Modifications will be necessary to extend these scripts to run on other HPC architectures. 
+
+There are a few necessary requirements for this workflow to run smoothly.  The PW Cluster Definition must be configured in a very particular manner, otherwise the scripts will not work. In terms of seeding input data in a Filesystem, this is dependent on the Cloud Service Provider being used.  For the cluster `Mount Point`, `/efs` is the easiest to conform with the current version of the scirpts. The `compute_<number>` partitions follows a strict naming convention, and the correct quantity of those partitions must be available as well.
 
 **Please be advised that in using any of the scripts as is in this directory, you must have the docker image named `fim:latest` available for use.**
     This can be accomplished by selecting a PW cloud snapshot (AMI) for the 'Elastic Image' field on your cluster that pulls it, or you can build the docker image yourself within the compute node (not recommended). 
+
+**Also, the docker volume mount for the `/foss_fim` directory must be updated in all scripts to reflect the location & version of inundation-mapping intended for use.**
 
 ## Prerequisite PW resources:
 
@@ -43,32 +46,41 @@ ls /efs
 df -h 
 ```
 
+Clone this branch of the repository and copy the necessary scripts to your home directory:
+
+```bash
+git clone -b dev-pw https://github.com/robgpita-noaa/inundation-mapping.git dev-pw
+cd dev-pw
+cp pw/* $HOME
+cd $HOME
+```
+
 ## Parallel Processing using slurm scheduler from Head Node
 
 ### How to execute `slurm_pipeline.sh`
-Calling `slurm_pipeline.sh` is the easiest way to run the model and produce HAND FIM datasets for larger domains using slurm on Parallel Works. It will call the necessary underlying scripts (pre, process unit, post), and takes command line arguments directly. It can be run from the controller node, which allows us to skip [steps](#Connecting-to-a-Compute-Node) if running interactively. 
+Calling `slurm_pipeline.sh` is the easiest way to run the model and produce HAND FIM datasets for larger domains using slurm on Parallel Works. It will call the necessary underlying scripts (pre, process unit, post), and takes command line arguments directly. It can be run from the controller node, which allows one to skip [steps](#Connecting-to-a-Compute-Node) necessary if running interactively. 
 
-If provided, the `-p` or `--partition` argument splits the larger huc list into chunks, which are turned into `p` * array jobs. Each chunk of hucs will be in a seperate partition, and those partitions are in different Availability Zones. Be sure to do the math and ensure you have enough compute nodes available in each partition based on the amount of HUC8s submitted. Some general rules:
+If provided, the `-p` or `--partition` argument splits the larger huc list into chunks, which are turned into `p` * array jobs. Each chunk of hucs will be in a seperate partition, and those partitions should be in different Availability Zones. Be sure to do the math and ensure you have enough compute nodes available in each partition based on the amount of HUC8s submitted, accounting for the remainder. Some general rules:
 
 `-p <n>` should divide the huc list into 'chunks' less than or equal to the `Max Nodes` value provided per partition (specified in the Compute Cluster Definition) 
 
 `-p <n>` should evenly divide the amount of hucs (or give the least amount of remaining hucs)
 
 
-This mitigates requesting too many resources in any one AZ.
+The use of partitions here mitigates requesting too many resources in any one AZ.
 
 There are a couple of important considerations that need to be understood in order to effectively use this script. 
 Depending on the domain size, it may be advised to use `slurm_single_fim_pipeline.sh`, see below for additional details. 
-If your domain size (amount of hucs in the `huc_list.lst` file) is roughly above 10, using `slurm_pipeline.sh` is the preferred method. 
 
+If your domain size (amount of hucs in the `huc_list.lst` file) is roughly above 10, using `slurm_pipeline.sh` is the preferred method. 
 
 Here is an example, see the `usage` function within the script for more options/information:
 
 ```bash
-bash slurm_pipeline.sh -u /data/inputs/huc_lists/dev_small_test_4_huc.lst -n test_slurm_pipeline
+./slurm_pipeline.sh -u /data/inputs/huc_lists/dev_small_test_4_huc.lst -n test_slurm_pipeline -jb 10 -p 5
 ```
 
-Please see the comments in this script, as well as the other `.sh` files to gain awareness of the procedues used. 
+Please see the comments, as well as the other `.sh` files to gain awareness of the procedues used before issuing a run. 
 
 ## Serial Processing 
 
@@ -78,6 +90,8 @@ Please see the comments in this script, as well as the other `.sh` files to gain
 
 
 ### Connecting to a Compute Node:
+#### Use these steps to issue Docker run command interactively and direcly call fim_pipeline.sh 
+
 The Controller node would traditionally kick of Slurm Jobs, but in the case of just running on one Compute Node, we need to spin up an interactive Compute Node to issue the script (run on a docker container) that will generate the datasets.
 
 Allocate an interactive compute node
@@ -101,4 +115,4 @@ You can verify these two steps were done correctly in two ways:
 
     2.) The second is from viewing the amount of active nodes as viewed from the HOME tab in PW (unclick terminal Icon).
 
-From there, you can modify the docker run command (as well as `fim_pipeline.sh` command) to suit your desired run. 
+From there, you can modify the docker run command (as well as `fim_pipeline.sh` command) to suit your requirements. 

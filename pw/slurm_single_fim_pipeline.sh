@@ -1,11 +1,10 @@
 #!/bin/bash
 
-## Use this script for a single HUC submission, or huc list less than 10 of fim_pipeline.sh
-
 #####################################################################################################################
-## The use case would be 1 HUC8, or one very large compute node to process hucs sequentially
+##  Use this script for a single HUC submission, a huc list of less than 10 of fim_pipeline.sh, or one very large 
+##  compute node (optimized jb and jh values). 
 ##
-## This job is meant to be configured within this script to meet needs of a particular use case
+##  This job is meant to be configured within this script to meet needs of a particular use case
 ##     Please modify:
 ##          SBATCH parameters
 ##          Arguments to fim_pipeline.sh at the end of the docker run command

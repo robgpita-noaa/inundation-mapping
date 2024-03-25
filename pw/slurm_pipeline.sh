@@ -3,15 +3,16 @@
 #####################################################################################################################
 ## Slurm implementation of fim_pipeline.sh 
 ##
-## This top level submits slurm_pre_processing.sh, slurm_process_unit_wb.sh/process_unit_wb_array.sh, & slurm_post_processing.sh as sbatch 
-##      jobs.
+## This top level script submits slurm_pre_processing.sh, slurm_process_unit_wb.sh/slurm_partition_process_unit.sh, & 
+##      slurm_post_processing.sh as sbatch jobs.
 ##
-## How to execute:
-##      bash slurm_pipeline.sh -u /data/inputs/huc_lists/dev_small_test_4_huc.lst -n test_slurm_pipeline
+## Execution example:
+##      ./slurm_pipeline.sh -u /data/inputs/huc_lists/dev_small_test_4_huc.lst -n test_slurm_pipeline -p 5 -o
 ##
 ## **Note**
-##      This slurm implementation has yet to scale beyond 4 HUC8s. Additional PW configurations and CSP availability
-##      concerns still need to be addressed. 
+##      This workflow has yet to scale beyond 10 HUC8s. Additional PW configurations and CSP availability
+##      concerns may need to be addressed. Further evaluation of On Demand Capacity Reservations, or usage of Spot 
+##      instances is necessary. 
 ##
 ## For Slurm Job dependencies, see:
 ##      https://slurm.schedmd.com/sbatch.html#OPT_dependency
@@ -143,9 +144,6 @@ relativeHucList=${hucList/data/efs}
 ## Read number of lines (hucs) from huclist 
 num_hucs=$(wc -l $relativeHucList | awk '{print $1}')
 
-## Set the remainder variable. This is needed in order to appropriately set $SLURM_PROCESS_UNIT_JOB_ARRAY_IDS
-remainder=$(( num_hucs % partitions ))
-
 #####################################################################################################################
 ## Split up the processing into 3 seperate logical processing steps (pre, compute, post)
 ## Each step correlates to a batch job/job array sent to the scheduler to ensure they are processed in the correct order
@@ -165,13 +163,18 @@ SLURM_PRE_PROCESSING=$(sbatch --parsable --partition=pre-processing slurm_pre_pr
 
 ## Depending on if the partition argument is provided, issue the appropriate script
 if [ $partitions -eq 0 ]; then
+    ## Call slurm_process_unit_wb.sh, and assign its slurm job id to PROCESS_UNIT_WB_ARRAY
     PROCESS_UNIT_WB_ARRAY=$(sbatch --partition=process_unit_array --dependency=afterok:$SLURM_PRE_PROCESSING --parsable slurm_process_unit_wb.sh ${relativeHucList})
     printf "\n PROCESS_UNIT_WB_ARRAY Submitted, Job ID is: $PROCESS_UNIT_WB_ARRAY \n"
     SLURM_PROCESS_UNIT_JOB_ARRAY_ID=$(($PROCESS_UNIT_WB_ARRAY + 1))
     printf "\n SLURM_PROCESS_UNIT_JOB_ARRAY_ID is: $SLURM_PROCESS_UNIT_JOB_ARRAY_ID \n"
 else
+    ## Set the remainder variable. This is needed in order to appropriately set $SLURM_PROCESS_UNIT_JOB_ARRAY_IDS
+    remainder=$(( num_hucs % partitions ))
+    ## Call slurm_partition_process_unit.sh, and assign its slurm job id to PROCESS_UNIT_WB_ARRAY
     PROCESS_UNIT_WB_ARRAY=$(sbatch --partition=process_unit_array --dependency=afterok:$SLURM_PRE_PROCESSING --parsable slurm_partition_process_unit.sh ${partitions} ${runName} ${relativeHucList})
     printf "\n PROCESS_UNIT_WB_ARRAY Submitted, Job ID is: $PROCESS_UNIT_WB_ARRAY \n"
+    ## Depending on if there is a remainder or not, build the string which will be passed as the 'dependency of array jobs' to post_processing step.
     SLURM_PROCESS_UNIT_JOB_ARRAY_IDS=($PROCESS_UNIT_WB_ARRAY:)
     if [ $remainder -ne 0 ]; then
         for ((i=0; i<=partitions; i++)); do

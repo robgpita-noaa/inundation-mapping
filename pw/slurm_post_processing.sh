@@ -2,10 +2,14 @@
 
 #####################################################################################################################
 ##
-## Slurm wrapper of fim_post_processing.sh
+##  Slurm wrapper of fim_post_processing.sh
 ##
-## How to execute:
-##      bash slurm_post_processing.sh test_pipeline_steps
+##  How to execute:
+##      ./slurm_post_processing.sh test_pipeline_steps -1
+##
+##  Note the -1 as the second argument. This resolves the job_array_id if there are not any - script executed
+##      outside of the slurm_pipeline.sh workflow).
+##
 #####################################################################################################################
 
 run_name=$1
