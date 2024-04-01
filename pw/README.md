@@ -1,12 +1,12 @@
 # FIM HAND Dataset Generation using slurm on PW 
 ### Intro:
 
-This directory contains the requisite scripts to use a slurm scheduler to generate HAND FIM Datasets using the existing scriptss contained within the larger repository. At the time of writting, these slurm scripts are configured to run on the Parallel Works Cloud HPC environment. Modifications will be necessary to extend these scripts to run on other HPC architectures. 
+This directory contains the requisite scripts to use a slurm scheduler to generate HAND FIM Datasets using the existing scripts contained within inundation-mapping repository. At the time of writting, these slurm scripts are configured to run on the Parallel Works Cloud HPC environment. Modifications will be necessary to extend these scripts to run on other HPC architectures. 
 
-There are a few necessary requirements for this workflow to run smoothly.  The PW Cluster Definition must be configured in a very particular manner, otherwise the scripts will not work. In terms of seeding input data in a Filesystem, this is dependent on the Cloud Service Provider being used.  For the cluster `Mount Point`, `/efs` is the easiest to conform with the current version of the scirpts. The `compute_<number>` partitions follows a strict naming convention, and the correct quantity of those partitions must be available as well.
+There are a few necessary requirements for this workflow to run smoothly.  The PW Cluster Definition must be configured in a very particular manner, otherwise the scripts will not work. In terms of seeding input data in a Filesystem, this is dependent on the Cloud Service Provider being used.  For the cluster `Mount Point`, using `/efs` is the easiest to conform with the current version of the scripts. The `compute_<number>` partitions follows a strict naming convention, and the correct number of those partitions must be available as well (if using `-p`).
 
-**Please be advised that in using any of the scripts as is in this directory, you must have the docker image named `fim:latest` available for use.**
-    This can be accomplished by selecting a PW cloud snapshot (AMI) for the 'Elastic Image' field on your cluster that pulls it, or you can build the docker image yourself within the compute node (not recommended). 
+**Please be advised that in using any of the scripts as is in this directory, you must have the docker image named `fim:latest` available for use on all compute nodes.**
+    This can be accomplished by selecting a PW cloud snapshot (AMI) for the 'Elastic Image' field on your cluster that pulls it.
 
 **Also, the docker volume mount for the `/foss_fim` directory must be updated in all scripts to reflect the location & version of inundation-mapping intended for use.**
 
@@ -49,16 +49,16 @@ df -h
 Clone this repository and copy the necessary scripts to your home directory:
 
 ```bash
-git -c http.sslVerify=false clone https://gitlab.sh.nextgenwaterprediction.com/NGWPC/fim_misc
-cd fim_misc/
-cp slurm/* $HOME
+git clone -b dev-pw https://github.com/robgpita-noaa/inundation-mapping.git dev-pw
+cd dev-pw
+cp pw/* $HOME
 cd $HOME
 ```
 
 ## Parallel Processing using slurm scheduler from Head Node
 
 ### How to execute `slurm_pipeline.sh`
-Calling `slurm_pipeline.sh` is the easiest way to run the model and produce HAND FIM datasets for larger domains using slurm on Parallel Works. It will call the necessary underlying slurm wrapper scripts (pre, process unit, post), and takes command line arguments directly. It can be run from the controller node, which allows one to skip the necessary [steps](#Connecting-to-a-Compute-Node) if running interactively. 
+Calling `./slurm_pipeline.sh` is the easiest way to run the model and produce HAND FIM datasets for larger domains using slurm on Parallel Works. It will call the necessary underlying slurm wrapper scripts (pre, process unit, post), and takes command line arguments directly. It can be run from the controller node, which allows one to skip the necessary [steps](#Connecting-to-a-Compute-Node-Interactively) if running interactively. 
 
 If provided, the `-p` or `--partition` argument splits the larger huc list into chunks, which are turned into `p` * array jobs. Processing of each chunk will be in a seperate partition, and those partitions correlate to different Availability Zones. **Be sure to do the math and ensure you have enough compute nodes available in each partition based on the amount of HUC8s submitted, accounting for the remainder.** Some general rules:
 
@@ -79,11 +79,11 @@ Here is an example, see the `usage` function within the script for more options/
 ```bash
 ./slurm_pipeline.sh -u /data/inputs/huc_lists/dev_small_test_4_huc.lst -n test_slurm_pipeline -jb 10 -p 5
 ```
-### Flow chart of script execution 
+### Flow chart of slurm job script execution 
 
 ```mermaid
 flowchart TD
-    A[Huclist > ~10] --> |No - single node| G(slurm_single_fim_pipeline.sh)
+    A[Huclist > 1] --> |No - single node| G(slurm_single_fim_pipeline.sh)
     G --> H[Modify args in
     docker run/fim_pipeline.sh commands]
     A --> |Yes - many nodes| B(slurm_pipeline.sh)
@@ -103,10 +103,10 @@ Please see the comments, as well as the child `.sh` (sbatch) files to gain a bet
 
 ### Using slurm from the controller node
 
-`slurm_single_fim_pipeline.sh` should be used to issue smaller domain (a single up to a handful of HUC8s) runs on one compute node. 
+`slurm_single_fim_pipeline.sh` should be used to issue smaller domain runs (a single up to a handful of HUC8s) **on one compute node**. It is advised to review the configuration in this script, and modify any arguments.  
 
 
-### Connecting to a Compute Node:
+### Connecting to a Compute Node Interactively:
 #### Use these steps to issue Docker run command interactively and direcly call fim_pipeline.sh 
 
 The Controller node would traditionally kick of Slurm Jobs, but in the case of just running on one Compute Node, we need to spin up an interactive Compute Node to issue the script (run on a docker container) that will generate the datasets.
