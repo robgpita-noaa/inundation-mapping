@@ -1,4 +1,4 @@
-# FIM HAND Dataset Generation on PW 
+# FIM HAND Dataset Generation using slurm on PW 
 ### Intro:
 
 This directory contains the requisite scripts to use a slurm scheduler to generate HAND FIM Datasets using the existing scriptss contained within the larger repository. At the time of writting, these slurm scripts are configured to run on the Parallel Works Cloud HPC environment. Modifications will be necessary to extend these scripts to run on other HPC architectures. 
@@ -29,7 +29,7 @@ Find your desired cluster under the HOME tab, and My Compute Resources.
 Click the power button.
 Please note that the power button is essentially a Terraform apply or Terraform destroy, depending on the state. For those not familiar with Terraform, that means the resource is provisioned and de-provisioned, so all files and folders (not located on the storage) will not persist. 
 
-Then you can click the \<username>@\<ip of cluster> to copy it to your clipboard:
+Then you can click the `\<username>@\<ip of cluster>` to copy it to your clipboard:
 
 ## Connecting to the Cluster Controller Node:
 
@@ -46,25 +46,25 @@ ls /efs
 df -h 
 ```
 
-Clone this branch of the repository and copy the necessary scripts to your home directory:
+Clone this repository and copy the necessary scripts to your home directory:
 
 ```bash
-git clone -b dev-pw https://github.com/robgpita-noaa/inundation-mapping.git dev-pw
-cd dev-pw
-cp pw/* $HOME
+git -c http.sslVerify=false clone https://gitlab.sh.nextgenwaterprediction.com/NGWPC/fim_misc
+cd fim_misc/
+cp slurm/* $HOME
 cd $HOME
 ```
 
 ## Parallel Processing using slurm scheduler from Head Node
 
 ### How to execute `slurm_pipeline.sh`
-Calling `slurm_pipeline.sh` is the easiest way to run the model and produce HAND FIM datasets for larger domains using slurm on Parallel Works. It will call the necessary underlying scripts (pre, process unit, post), and takes command line arguments directly. It can be run from the controller node, which allows one to skip [steps](#Connecting-to-a-Compute-Node) necessary if running interactively. 
+Calling `slurm_pipeline.sh` is the easiest way to run the model and produce HAND FIM datasets for larger domains using slurm on Parallel Works. It will call the necessary underlying slurm wrapper scripts (pre, process unit, post), and takes command line arguments directly. It can be run from the controller node, which allows one to skip the necessary [steps](#Connecting-to-a-Compute-Node) if running interactively. 
 
-If provided, the `-p` or `--partition` argument splits the larger huc list into chunks, which are turned into `p` * array jobs. Each chunk of hucs will be in a seperate partition, and those partitions should be in different Availability Zones. Be sure to do the math and ensure you have enough compute nodes available in each partition based on the amount of HUC8s submitted, accounting for the remainder. Some general rules:
+If provided, the `-p` or `--partition` argument splits the larger huc list into chunks, which are turned into `p` * array jobs. Processing of each chunk will be in a seperate partition, and those partitions correlate to different Availability Zones. **Be sure to do the math and ensure you have enough compute nodes available in each partition based on the amount of HUC8s submitted, accounting for the remainder.** Some general rules:
 
 `-p <n>` should divide the huc list into 'chunks' less than or equal to the `Max Nodes` value provided per partition (specified in the Compute Cluster Definition) 
 
-`-p <n>` should evenly divide the amount of hucs (or give the least amount of remaining hucs)
+`-p <n>` should ideally evenly divide the amount of hucs in the huclist (or give the least amount of remaining hucs)
 
 
 The use of partitions here mitigates requesting too many resources in any one AZ.
@@ -79,8 +79,25 @@ Here is an example, see the `usage` function within the script for more options/
 ```bash
 ./slurm_pipeline.sh -u /data/inputs/huc_lists/dev_small_test_4_huc.lst -n test_slurm_pipeline -jb 10 -p 5
 ```
+### Flow chart of script execution 
 
-Please see the comments, as well as the other `.sh` files to gain awareness of the procedues used before issuing a run. 
+```mermaid
+flowchart TD
+    A[Huclist > ~10] --> |No - single node| G(slurm_single_fim_pipeline.sh)
+    G --> H[Modify args in
+    docker run/fim_pipeline.sh commands]
+    A --> |Yes - many nodes| B(slurm_pipeline.sh)
+    B --> C[slurm_pre_processing.sh]
+    C --> |partitions = no| D[slurm_process_unit_wb.sh]
+    C --> |partitions = yes| I[slurm_partition_process_unit.sh]
+    I --> J(process_unit_wb_array.sh)
+    J --> E[slurm_post_processing.sh]
+    D --> E[slurm_post_processing.sh]
+
+```
+
+Please see the comments, as well as the child `.sh` (sbatch) files to gain a better awareness of the procedues used before issuing a run.
+
 
 ## Serial Processing 
 
