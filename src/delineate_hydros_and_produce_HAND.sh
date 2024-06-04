@@ -97,7 +97,8 @@ $srcDir/split_flows.py -f $tempCurrentBranchDataDir/demDerived_reaches_$current_
     -d $tempCurrentBranchDataDir/dem_thalwegCond_$current_branch_id.tif \
     -s $tempCurrentBranchDataDir/demDerived_reaches_split_$current_branch_id.gpkg \
     -p $tempCurrentBranchDataDir/demDerived_reaches_split_points_$current_branch_id.gpkg \
-    -w $tempHucDataDir/wbd8_clp.gpkg -l $tempHucDataDir/nwm_lakes_proj_subset.gpkg \
+    -w $tempHucDataDir/wbd8_clp.gpkg \
+    -l $tempHucDataDir/nwm_lakes_proj_subset.gpkg \
     -n $b_arg \
     -m $max_split_distance_meters \
     -t $slope_min \
@@ -126,7 +127,24 @@ mpiexec -n $ncores_gw $taudemDir/gagewatershed \
     -o $tempCurrentBranchDataDir/flows_points_pixels_$current_branch_id.gpkg \
     -id $tempCurrentBranchDataDir/idFile_$current_branch_id.txt
 
-# D8 REM ##
+## CATCH AND MITIGATE BRANCH OUTLET BACKPOOL ERROR ##
+echo -e $startDiv"Catching and mitigating branch outlet backpool issue $hucNumber $current_branch_id"
+date -u
+Tstart
+$srcDir/mitigate_branch_outlet_backpool.py \
+    -b $tempCurrentBranchDataDir \
+    -cp $tempCurrentBranchDataDir/gw_catchments_pixels_$current_branch_id.tif \
+    -cpp $tempCurrentBranchDataDir/gw_catchments_pixels_$current_branch_id.gpkg \
+    -cr $tempCurrentBranchDataDir/gw_catchments_reaches_$current_branch_id.tif \
+    -s $tempCurrentBranchDataDir/demDerived_reaches_split_$current_branch_id.gpkg \
+    -p $tempCurrentBranchDataDir/demDerived_reaches_split_points_$current_branch_id.gpkg \
+    -n $b_arg \
+    -d $tempCurrentBranchDataDir/dem_thalwegCond_$current_branch_id.tif \
+    -t $slope_min \
+    --calculate-stats
+Tcount
+
+## D8 REM ##
 echo -e $startDiv"D8 REM $hucNumber $current_branch_id"
 $srcDir/make_rem.py -d $tempCurrentBranchDataDir/dem_thalwegCond_"$current_branch_id".tif \
     -w $tempCurrentBranchDataDir/gw_catchments_pixels_$current_branch_id.tif \
@@ -209,6 +227,7 @@ $taudemDir/catchhydrogeo -hand $tempCurrentBranchDataDir/rem_zeroed_masked_$curr
     -h $tempCurrentBranchDataDir/stage_$current_branch_id.txt \
     -table $tempCurrentBranchDataDir/src_base_$current_branch_id.csv
 
+
 ## FINALIZE CATCHMENTS AND MODEL STREAMS ##
 echo -e $startDiv"Finalize catchments and model streams $hucNumber $current_branch_id"
 python3 $srcDir/add_crosswalk.py \
@@ -230,6 +249,30 @@ python3 $srcDir/add_crosswalk.py \
     -e $min_catchment_area \
     -g $min_stream_length
 
+## HEAL HAND -- REMOVES HYDROCONDITIONING ARTIFACTS ##
+if [ "$healed_hand_hydrocondition" = true ]; then
+    echo -e $startDiv"Healed HAND to Remove Hydro-conditioning Artifacts $hucNumber $current_branch_id"
+    gdal_calc.py --quiet --type=Float32 --overwrite --co "COMPRESS=LZW" --co "BIGTIFF=YES" --co "TILED=YES" \
+        -R $tempCurrentBranchDataDir/rem_zeroed_masked_$current_branch_id.tif \
+        -D $tempCurrentBranchDataDir/dem_meters_$current_branch_id.tif \
+        -T $tempCurrentBranchDataDir/dem_thalwegCond_$current_branch_id.tif \
+        --calc="R+(D-T)" --NoDataValue=$ndv \
+        --outfile=$tempCurrentBranchDataDir/"rem_zeroed_masked_$current_branch_id.tif"
+fi
+
+## HEAL HAND BRIDGES ##
+if  [ -f $tempHucDataDir/osm_bridges_subset.gpkg ]; then
+    echo -e $startDiv"Burn in bridges $hucNumber $current_branch_id"
+    python3 $srcDir/heal_bridges_osm.py \
+        -g $tempCurrentBranchDataDir/rem_zeroed_masked_$current_branch_id.tif \
+        -s $tempHucDataDir/osm_bridges_subset.gpkg \
+        -p $tempCurrentBranchDataDir/gw_catchments_reaches_filtered_addedAttributes_crosswalked_$current_branch_id.gpkg \
+        -c $tempCurrentBranchDataDir/osm_bridge_centroids_$current_branch_id.gpkg \
+        -b 10 \
+        -r $res
+else
+    echo -e $startDiv"No applicable bridge data for $hucNumber"
+fi
 
 ## EVALUATE CROSSWALK ##
 if [ "$current_branch_id" = "$branch_zero_id" ] && [ "$evaluateCrosswalk" = "1" ] ; then
